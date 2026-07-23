@@ -1,0 +1,124 @@
+{
+  "app_name": "ExpenseSync",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A structured, calm, and trustworthy fintech experience with generous breathing room and clear data hierarchy.",
+  "color": {
+    "surface": "#F8F8F7",
+    "onSurface": "#1A1C1B",
+    "surfaceSecondary": "#FFFFFF",
+    "onSurfaceSecondary": "#3D413F",
+    "surfaceTertiary": "#EFF0EC",
+    "onSurfaceTertiary": "#5A605D",
+    "surfaceInverse": "#1A1C1B",
+    "onSurfaceInverse": "#F8F8F7",
+    "brand": "#2E4F3D",
+    "brandPrimary": "#2E4F3D",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#4D735D",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#E5EBE7",
+    "onBrandTertiary": "#1C3326",
+    "success": "#376346",
+    "onSuccess": "#FFFFFF",
+    "warning": "#A87A2B",
+    "onWarning": "#FFFFFF",
+    "error": "#963B3B",
+    "onError": "#FFFFFF",
+    "info": "#475C51",
+    "onInfo": "#FFFFFF",
+    "border": "#E6E8E5",
+    "borderStrong": "#C7CAC6",
+    "divider": "#E6E8E5"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": { "sm": 12, "base": 14, "lg": 16, "xl": 20, "2xl": 24 }
+  },
+  "spacing": {
+    "rule": "Generous vertical padding, clear grouping of elements. Do not overcrowd metrics. Use comfortable touch targets.",
+    "xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24, "2xl": 32, "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6, "md": 12, "lg": 20, "pill": 999
+  },
+  "shadow_tier": 1,
+  "navigation": "bottom_tabs",
+  "icon_set": "Ionicons",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": ["Use subtle shadows instead of glass for elevated cards on this Android target"],
+    "dont's": ["Do not use blur headers or glassmorphism as this is an Android-focused build where performance on lists matters more"]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "solid surfaceSecondary",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Login",
+      "purpose": "Google sign-in and introductory value prop.",
+      "states": { "loading": "Centered spinner", "empty": "None", "error": "Toast with retry option" },
+      "layout": "Minimalist geometric background filling upper 50% with vertical scrim gradient. A solid surface card containing a 'Continue with Google' button (using real Google logo). Bottom safe area clearance."
+    },
+    {
+      "name": "Dashboard",
+      "purpose": "Overview of total spend, categorical breakdown, and recent transactions.",
+      "states": { "loading": "Skeleton of balance and 3 transaction rows", "empty": "Illustration of empty wallet, prompt to connect Gmail/SMS", "error": "Unable to fetch data, retry button" },
+      "layout": "Top: Total Balance card (focal point, biggest typography) with monthly spend chart. If duplicates exist, show a contextual alert banner directly below the balance card ('Possible duplicate found' with a 'Review' button). Below: Recent transactions list using label/value rows, no wrapping."
+    },
+    {
+      "name": "Transactions",
+      "purpose": "Detailed list of all expenses with filtering and duplicate flag visibility.",
+      "states": { "loading": "List skeleton", "empty": "No transactions found for these filters", "error": "Failed to load transactions" },
+      "layout": "Top sticky header with horizontal scrollable filter chips (Category, Source). List view using hierarchical typography (Transaction name strongest, Amount bold, Date/Category subdued). Duplicates highlighted with an inline badge or warning tint on the row."
+    },
+    {
+      "name": "Transaction Detail",
+      "purpose": "Deep dive into a single transaction, showing parsed data vs raw source.",
+      "states": { "loading": "Skeleton", "empty": "None", "error": "Error loading details" },
+      "layout": "Top app bar with 'Edit' action. Primary block: Name and Amount prominently displayed. Secondary block: List of details (Category, Date, Source). Bottom block: Raw SMS/Email text in a surfaceTertiary container with monospaced font feel. Duplicate resolution controls (Merge/Keep/Delete) anchored at bottom if applicable."
+    },
+    {
+      "name": "Settings",
+      "purpose": "Manage connections (Gmail, SMS), categories, and user profile.",
+      "states": { "loading": "Skeleton", "empty": "None", "error": "Error loading settings" },
+      "layout": "Grouped list items (surfaceSecondary rows with divider) for 'Data Sources' (Gmail, SMS permissions), 'Categories', and 'Account'. Logout sticky at the bottom."
+    }
+  ],
+  "images": {
+    "google_logo": {
+      "url": "https://images.unsplash.com/photo-1662947190722-5d272f82a526?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwxfHxHb29nbGUlMjBsb2dvJTIwdHJhbnNwYXJlbnQlMjBwbmd8ZW58MHx8fHwxNzg0NjYxMTMwfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Google logo"
+    },
+    "login_hero_bg": {
+      "url": "https://images.unsplash.com/photo-1483959651481-dc75b89291f1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBnZW9tZXRyaWMlMjBiYWNrZ3JvdW5kJTIwdGV4dHVyZXxlbnwwfHx8fDE3ODQ3NzQyOTZ8MA&ixlib=rb-4.1.0&q=85",
+      "dark": "https://images.unsplash.com/photo-1454117096348-e4abbeba002c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBnZW9tZXRyaWMlMjBiYWNrZ3JvdW5kJTIwdGV4dHVyZXxlbnwwfHx8fDE3ODQ3NzQyOTZ8MA&ixlib=rb-4.1.0&q=85",
+      "alt": "Minimalist geometric background texture"
+    }
+  },
+  "haptics": {
+    "button_press": "light",
+    "tab_switch": "light",
+    "duplicate_detected": "notificationWarning",
+    "transaction_saved": "notificationSuccess",
+    "pull_to_refresh": "medium"
+  },
+  "instructions_to_main_agent": [
+    "Ensure strict adherence to the iOS-Native Clean layout rules, specifically generous vertical spacing and no overlapping elements unless intentional.",
+    "Do not use ANY blue or purple colors. Base themes are warm off-whites with forest/sage green branding. Substitute system blues with the designated brand or near-black tokens.",
+    "For the Transaction List, transaction names must have the highest visual hierarchy, amounts must be clearly legible, and metadata (date/category) must be subdued. Do not crowd the rows.",
+    "For Duplicate Detection, DO NOT use modals/dialogs unless destructive. Use a contextual inline banner beneath the dashboard balance card or inside the transaction view ('Possible duplicate found' with a 'Review' button).",
+    "Images fetching: The google_logo uses the provided real PNG. Text layered over background images MUST use the gradient scrim pattern (transparent to >=70% surfaceInverse).",
+    "Avoid glassmorphism for this Android-focused utility app. Rely on subtle shadow_tier 1 and solid surfaceSecondary for elevated elements.",
+    "Primary CTAs must be sticky at the bottom of scrollable content, wrapped in a fixed container avoiding the safe area."
+  ]
+}
