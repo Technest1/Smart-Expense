@@ -24,6 +24,30 @@ db = client[os.environ['DB_NAME']]
 # ---------- LLM (Emergent Integrations) ----------
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 
+# ---------- Security limits ----------
+MAX_INGEST_ITEMS = 50
+MAX_TXN_LIST_LIMIT = 500
+MAX_INGEST_TEXT_CHARS = 4000
+AI_CALLS_PER_HOUR_PER_USER = 60
+_ai_call_log: dict = {}  # user_id -> list[timestamp]
+
+def _ai_quota_check(user_id: str) -> bool:
+    """Return True if user is under quota; also records the call."""
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(hours=1)
+    log = [t for t in _ai_call_log.get(user_id, []) if t >= window_start]
+    if len(log) >= AI_CALLS_PER_HOUR_PER_USER:
+        _ai_call_log[user_id] = log
+        return False
+    log.append(now)
+    _ai_call_log[user_id] = log
+    return True
+
+ALLOWED_CATEGORIES = {
+    "Food & Dining", "Transport", "Shopping", "Groceries", "Entertainment",
+    "Bills & Utilities", "Health", "Transfers", "Uncategorized",
+}
+
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
@@ -225,9 +249,12 @@ def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]
         "parser": "regex",
     }
 
-async def ai_parse(text: str, received_at: datetime) -> Optional[dict]:
+async def ai_parse(text: str, received_at: datetime, user_id: Optional[str] = None) -> Optional[dict]:
     """Fallback AI parser using Emergent LLM (Claude Sonnet)."""
     if not EMERGENT_LLM_KEY:
+        return None
+    if user_id and not _ai_quota_check(user_id):
+        logger.warning(f"AI quota exceeded for {user_id}")
         return None
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -264,14 +291,30 @@ async def ai_parse(text: str, received_at: datetime) -> Optional[dict]:
         amount = float(js["amount"])
         if amount <= 0:
             return None
+        # SEC-003: validate AI output against allowlists
+        direction = js.get("direction", "debit")
+        if direction not in ("debit", "credit"):
+            direction = "debit"
+        category = js.get("category") or "Uncategorized"
+        if category not in ALLOWED_CATEGORIES:
+            category = "Uncategorized"
+        merchant = (js.get("merchant") or "Unknown")
+        if not isinstance(merchant, str):
+            merchant = "Unknown"
+        ref_id = js.get("ref_id")
+        if ref_id is not None and not isinstance(ref_id, str):
+            ref_id = None
+        account = js.get("account")
+        if account is not None and not isinstance(account, str):
+            account = None
         return {
             "amount": amount,
-            "direction": js.get("direction", "debit"),
-            "merchant": (js.get("merchant") or "Unknown")[:60],
-            "ref_id": js.get("ref_id"),
-            "account": js.get("account"),
+            "direction": direction,
+            "merchant": merchant[:60],
+            "ref_id": ref_id[:64] if ref_id else None,
+            "account": account[:32] if account else None,
             "txn_date": received_at,
-            "category": js.get("category") or "Uncategorized",
+            "category": category,
             "parser": "ai",
         }
     except Exception as e:
@@ -314,17 +357,25 @@ async def is_duplicate(user_id: str, parsed: dict) -> Optional[str]:
 @api_router.post("/messages/ingest")
 async def ingest_messages(payload: IngestRequest, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
+    # SEC-001: cap batch size
+    if len(payload.items) > MAX_INGEST_ITEMS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many items in one request (max {MAX_INGEST_ITEMS})",
+        )
     saved = 0
     duplicates = 0
     skipped = 0
     results = []
     for item in payload.items:
+        # Cap individual text size to prevent giant payloads
+        text = (item.text or "")[:MAX_INGEST_TEXT_CHARS]
         received_at = item.received_at or datetime.now(timezone.utc)
         if received_at.tzinfo is None:
             received_at = received_at.replace(tzinfo=timezone.utc)
-        parsed = regex_parse(item.text, item.source, received_at)
+        parsed = regex_parse(text, item.source, received_at)
         if not parsed:
-            parsed = await ai_parse(item.text, received_at)
+            parsed = await ai_parse(text, received_at, user_id=user.user_id)
         if not parsed:
             skipped += 1
             results.append({"status": "skipped", "reason": "no_transaction_found"})
@@ -341,7 +392,7 @@ async def ingest_messages(payload: IngestRequest, authorization: Optional[str] =
             source=item.source,
             account=parsed.get("account"),
             ref_id=parsed.get("ref_id"),
-            raw_text=item.text,
+            raw_text=text,
             parser=parsed["parser"],
             is_duplicate=bool(dup_of),
             duplicate_of=dup_of,
@@ -414,6 +465,8 @@ async def list_transactions(
     limit: int = 200,
 ):
     user = await get_current_user(authorization)
+    # Hardening: cap the limit
+    limit = max(1, min(limit, MAX_TXN_LIST_LIMIT))
     q = {"user_id": user.user_id}
     if category:
         q["category"] = category
@@ -684,7 +737,7 @@ app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],

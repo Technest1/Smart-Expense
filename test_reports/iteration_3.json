@@ -1,0 +1,43 @@
+{
+  "summary": "Security audit fixes verified. 26/26 pytest cases pass in both parallel (xdist) and serial modes covering SEC-001 (batch cap + text cap + AI quota), SEC-002 (CORS allow_credentials=False), SEC-003 (AI output validation static checks), MAX_TXN_LIST_LIMIT hardening, plus sprint-1/sprint-2 regressions and auth enforcement. All 3 security findings and 1 hardening item are properly implemented in /app/backend/server.py. No functionality regressed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/messages/ingest", "issue": "413 detail string 'Too many items in one request (max 50)' does not include the actual received count. Optional nicety; contract is met."},
+      {"endpoint": "AI quota (_ai_call_log)", "issue": "In-memory dict per-process — quota is not shared across gunicorn/uvicorn workers or pod replicas. Acceptable for single-worker dev but should move to Redis / Mongo TTL for production. Also never garbage-collects entries for users who go silent (memory grows unbounded over time)."},
+      {"endpoint": "ai_parse", "issue": "Quota is charged BEFORE the LLM call regardless of success; a failing/timeout call still consumes budget. Consider incrementing only after a successful (non-exception) response, or refund on failure."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_security_audit_fixes.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_security_audit.xml"
+  ],
+  "action_items": [
+    "None blocking — all security audit fixes verified working end-to-end.",
+    "Optional: move AI quota state out of process memory (Redis/Mongo TTL) for horizontal scaling.",
+    "Optional: only decrement AI quota on successful LLM response (currently charged even on parse/HTTP failure)."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 749 lines — past the recommended 700-line soft limit flagged in iteration_2. Next feature MUST trigger a module split (auth/parser/transactions/dashboard/budgets/analytics/security_limits).",
+    "MAX_INGEST_TEXT_CHARS=4000 truncates AFTER pydantic parses the raw JSON body — a 10 MB text[] field would still be fully deserialized in memory. If DoS via huge JSON body is a concern, add a request-body size limit at the ASGI/starlette layer or at ingress.",
+    "The AI quota constant is hardcoded (60/hr) — consider exposing via env var (AI_CALLS_PER_HOUR_PER_USER) so ops can tune it without redeploy.",
+    "CORS is now allow_origins=['*'] with allow_credentials=False — this is the correct combination (browsers refuse credentials='include' with wildcard anyway). Good.",
+    "ai_parse validates category/direction post-parse but silently coerces bad values to defaults ('Uncategorized' / 'debit') instead of skipping the record. If the LLM hallucinates entirely, a bogus txn could still be saved with a fake amount + valid-looking fallback fields. Consider treating repeated fallbacks as a signal to skip."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_security_audit_fixes.py (new — 26 test cases)"
+  ],
+  "success_rate": {"backend": "100% (26/26 security audit + regression)", "frontend": "not tested (per request)"},
+  "seed_data_creation": "Tests use TEST_USER_ID=user_test000001 with Bearer test-token-xyz-123 (seeded by conftest.py autouse fixture). Each class using ingest wipes transactions before/after via `clean_txns` fixture. Sprint-2 budgets test wipes budgets collection for isolation.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Security audit iteration is green. New reusable test file /app/backend/tests/test_security_audit_fixes.py covers SEC-001/002/003 + limit-clamp + smoke regressions. Run with: `export EXPO_PUBLIC_BACKEND_URL=... MONGO_URL=... DB_NAME=... && pytest backend/tests/test_security_audit_fixes.py -v`. Passes with pytest-xdist parallel (2 workers) AND serial (-n 0). Public URL env var is EXPO_PUBLIC_BACKEND_URL (per frontend/.env). Sprint-1 (test_expensesync_backend.py) + Sprint-2 (test_sprint2_budgets_analytics.py) suites remain valid. server.py now 749 lines — beyond 700-line soft limit; next feature should trigger a module split.",
+  "rca_of_issue": "N/A — all three security fixes and the hardening item are correctly implemented; no bugs found. Verified: (1) MAX_INGEST_ITEMS=50 returns HTTP 413 for 51 items and 200 for exactly 50; (2) text >4000 chars truncated in stored raw_text; (3) AI_CALLS_PER_HOUR_PER_USER=60 constant present + _ai_quota_check gates ai_parse + no AI triggered on regex-happy path; (4) CORS Access-Control-Allow-Credentials header absent/not-true on both preflight and simple GET, allow_credentials=False in source; (5) ALLOWED_CATEGORIES set has all 9 required categories, ai_parse validates direction ∈ {debit,credit} + category ∈ ALLOWED_CATEGORIES with safe fallback; (6) GET /api/transactions?limit=99999 returns 200 with items <=500."
+}
