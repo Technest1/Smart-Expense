@@ -1,0 +1,33 @@
+{
+  "summary": "Sprint 3 frontend UI verification: all requested features PASS. Login shows the new tagline ('Never miss an expense again; your budget updates itself.') and no longer shows the old SMS/email tagline. Auth bypass via seeding localStorage['expensesync_session_token']='\"test-token-xyz-123\"' works because AsyncStorage on web uses window.localStorage — no IndexedDB seeding needed. After reload the app auto-navigates to Dashboard for user_test000001. Empty state renders with testID='seed-sample-button'; tapping it seeds and the balance card shows ₹6,532 spent (10 txns) after refresh. All 5 range chips render horizontally scrollable (today/week/month/all/custom) — tapping 'today' updates month-spend to ₹0 (no txns dated today, as expected). 'Account balances' section renders 2 cards (acct-card-XX5678 ₹1,26,234.55 and acct-card-XX1234 ₹24,501.5, both with 'as of' dates). Custom range modal opens, accepts 2026-01-01 → 2026-12-31, closes on Apply and reloads dashboard with a 'Custom' label ('SPENT · CUSTOM' ₹6,532). Analytics tab renders donut ('Spending by category'), bar chart ('Last 6 months'), and 'Top merchants' with 8 rows (Flipkart, AMAZON, AIRTEL POSTPAID BILL, …) each showing merchant, category, ₹ total, txn count and avg — bar widths are proportional (row 0 = 100%). Two minor console warnings observed (SVG transform-origin DOM property warning + props.pointerEvents deprecation) — non-blocking, informational only.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Analytics · Top merchants", "issues": ["Merchant icon shows a duplicated first-letter (e.g., 'FFlipkart', 'AAMAZON') in the collapsed text-content dump — visually the letter is inside a circular avatar and the merchant name is next to it, so this is a testing-tool artifact rather than a UI bug. Confirmed visually the layout is correct in screenshot /tmp/analytics.png."]}
+    ],
+    "react_native_issues": [
+      {"component": "react-native-web (SVG)", "issue": "Console error: Invalid DOM property `transform-origin`. Did you mean `transformOrigin`? Likely emitted by react-native-svg on web when rendering the donut/bar charts. Not blocking rendering but pollutes the dev console. Reference: /app/frontend/app/(tabs)/analytics.tsx (Svg/G/Circle/Rect usage)."},
+      {"component": "react-native-web (Pressable/Modal)", "issue": "Console warning: props.pointerEvents is deprecated. Use style.pointerEvents. Not sourced in app code — likely from a library (react-native-safe-area-context or a Pressable/Modal internal). Reference: appears once during Dashboard mount."}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional cleanup) Investigate and silence the two react-native-web console warnings: `transform-origin` (SVG) and `props.pointerEvents deprecated` (likely a dependency). Neither impacts functionality but they are visible in dev console.",
+    "No functional fixes required for Sprint 3 items — all Dashboard range chips, Account balances carousel, Custom-range modal, and Analytics Top merchants render and work as specified."
+  ],
+  "critical_code_review_comments": [
+    "app/(tabs)/index.tsx: `load()` swallows errors silently (`catch (e) { // ignore }`). For production hardening consider surfacing an inline error banner or retry affordance when /dashboard or /accounts/balances fails.",
+    "app/(tabs)/index.tsx applyCustom() silently no-ops when regex validation fails — a small inline validation hint under the input would improve UX.",
+    "app/(tabs)/index.tsx is 449 lines and mixes Dashboard, RangeChips, AccountBalances carousel, and CustomRangeModal — approaching the 700-line soft cap. Consider extracting `<AccountBalancesCarousel/>`, `<RangeChips/>`, and `<CustomRangeModal/>` into src/components/ for testability and reuse.",
+    "app/(tabs)/analytics.tsx: charts use `Dimensions.get('window')` at module scope — will not update on rotation. Prefer `useWindowDimensions()` hook."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not requested)", "frontend": "100%"},
+  "seed_data_creation": "Used backend seed endpoint via /api/messages/seed-sample (tapped from empty-state UI). No manual DB writes performed; MongoDB test user + session token were already pre-seeded per test_credentials.md.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth bypass on web: window.localStorage.setItem('expensesync_session_token', JSON.stringify('test-token-xyz-123')) then reload — AsyncStorage web shim uses localStorage (verified in @react-native-async-storage/async-storage/lib/module/AsyncStorage.js). No IndexedDB seeding needed. Value MUST be JSON-stringified because src/utils/storage/index.web.ts wraps setItem with JSON.stringify. The tab bar uses testIDs like tab-analytics/tab-transactions/tab-settings; Dashboard tab is the default route.",
+  "rca_of_issue": "No bugs to RCA — Sprint 3 features are fully functional in preview."
+}
