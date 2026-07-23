@@ -1,31 +1,32 @@
-# ExpenseSync — PRD (Sprint 1)
+# ExpenseSync — PRD
 
 ## Vision
 Android-first personal finance app that automatically tracks every expense from bank SMS and email, deduplicates them, and gives users a clean spending overview.
 
-## Sprint 1 scope (delivered)
+## Sprint 1 (shipped)
 - Google sign-in (Emergent-managed)
-- Message ingest pipeline: paste any SMS/email → parse → store
-- **Parsing engine**: Regex-first (Indian bank formats) with AI fallback via Claude Sonnet (Emergent LLM)
-- **Deduplication**: same reference ID **OR** (same amount + normalized merchant + direction within ±1 day)
-- Promotional / non-transaction message filtering
-- Dashboard: monthly spend/income, category breakdown, recent transactions, duplicate banner
-- Transactions list with category & source filters + duplicates toggle
-- Transaction detail: change category, mark/un-mark duplicate, view raw text, delete
-- Seed sample data for demo (since Expo Go cannot read SMS)
-- Settings: profile, data-source status, log out
+- Message ingest: paste any SMS/email → parse → store
+- **Parsing**: Regex-first (Indian bank formats) + Claude Sonnet AI fallback (Emergent LLM)
+- **Dedup**: same ref_id OR (same amount + normalized merchant + direction ± 1 day)
+- Promotional-SMS filtering
+- Dashboard, Transactions list w/ filters, Transaction detail, Settings
 
-## Deferred to next sprint
-- Native Android SMS auto-read (requires APK build + READ_SMS permission — added to app.json when we build)
-- Gmail readonly sync (needs Google Cloud OAuth client with Gmail scope, separate from identity auth)
-- Charts (pie/line)
-- Budgets & alerts
-- Merchant learning (remember user's category overrides)
+## Sprint 2 (shipped)
+- **Analytics tab**: donut (categories), monthly-trend bar chart (last 6 months), recurring subscriptions list
+- **Budgets & alerts** (Settings → Budgets): set monthly cap per category; over-budget & near-limit indicators; dashboard alert cards
+- **Recurring detection**: merchants debited in ≥2 distinct months (last 4) with amounts within ±15% surfaced as subscriptions
+- **SMS permission scaffold**: `READ_SMS` + `RECEIVE_SMS` declared in app.json; new `/sms-sync` screen requests the permission (works only after APK build; graceful fallback UI in preview)
+
+## Deferred (Sprint 3 candidates)
+- **b4. Gmail readonly sync** — needs a Google Cloud OAuth client with `gmail.readonly` scope from user
+- **b5. Real native SMS reader** — add `react-native-get-sms-android` or custom Expo config plugin; light up after APK build
+- **b1. Push notifications for subscription reminders** — Emergent-managed push, testable only in the built app
+- Merchant-learning (remember user category overrides)
 
 ## Tech stack
-- Expo SDK 54 / React Native / expo-router
+- Expo SDK 54 / React Native / expo-router / react-native-svg
 - FastAPI + MongoDB (motor)
 - Emergent Google Auth + Emergent LLM (Claude Sonnet 4.6)
 
 ## Business enhancement idea
-Once we have parsed transactions, we can offer **"Smart Bill Reminders"** — detect recurring subscriptions (Netflix, Spotify, telco) and remind users a day before the amount hits their account, driving daily retention.
+Once subscription detection is proven, upsell **"Smart Bill Reminders"** — remind users 1 day before a recurring charge hits. Combined with budgets & alerts, this transforms a passive tracker into an active money-saving assistant → strong daily-retention hook.
