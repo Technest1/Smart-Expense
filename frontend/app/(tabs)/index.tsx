@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,29 +12,53 @@ type Txn = {
   category: string; txn_date: string; source: string; is_duplicate: boolean;
 };
 type Dash = {
+  range?: { key: string; label: string; start: string; end: string };
   month_spend: number; month_income: number;
   by_category: { category: string; amount: number }[];
   duplicate_count: number; recent: Txn[]; total_transactions: number;
   budgets?: { id: string; category: string; monthly_limit: number; spent: number; pct: number; over_budget: boolean; near_limit: boolean }[];
   recurring_count?: number;
 };
+type AccountBalance = { account: string; balance: number; as_of: string };
+
+const RANGES: { key: string; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'Last 7 days' },
+  { key: 'month', label: 'This month' },
+  { key: 'all', label: 'All time' },
+  { key: 'custom', label: 'Custom' },
+];
 
 export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
   const [data, setData] = useState<Dash | null>(null);
+  const [accounts, setAccounts] = useState<{ items: AccountBalance[]; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [rangeKey, setRangeKey] = useState<string>('month');
+  const [customModal, setCustomModal] = useState(false);
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [customApplied, setCustomApplied] = useState<{ start: string; end: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const d = await apiFetch<Dash>('/dashboard');
+      let url = `/dashboard?range=${rangeKey}`;
+      if (rangeKey === 'custom' && customApplied) {
+        url += `&start=${encodeURIComponent(customApplied.start)}&end=${encodeURIComponent(customApplied.end)}`;
+      }
+      const [d, a] = await Promise.all([
+        apiFetch<Dash>(url),
+        apiFetch<{ items: AccountBalance[]; total: number }>('/accounts/balances'),
+      ]);
       setData(d);
+      setAccounts(a);
     } catch (e) {
       // ignore
     }
-  }, []);
+  }, [rangeKey, customApplied]);
 
   useFocusEffect(useCallback(() => {
     setLoading(true);
@@ -57,6 +81,16 @@ export default function Dashboard() {
     }
   };
 
+  const applyCustom = () => {
+    // Accept yyyy-mm-dd, convert to ISO datetimes.
+    const s = customStart.trim();
+    const e = customEnd.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) return;
+    setCustomApplied({ start: `${s}T00:00:00`, end: `${e}T23:59:59` });
+    setRangeKey('custom');
+    setCustomModal(false);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.loading}><ActivityIndicator color={theme.color.brand} /></SafeAreaView>
@@ -64,6 +98,7 @@ export default function Dashboard() {
   }
 
   const catTotal = (data?.by_category || []).reduce((s, x) => s + x.amount, 0);
+  const currentLabel = data?.range?.label || 'This month';
 
   return (
     <SafeAreaView style={styles.root} edges={['top']} testID="dashboard-screen">
@@ -74,7 +109,7 @@ export default function Dashboard() {
         <View style={styles.header}>
           <View>
             <Text style={styles.hello}>Hi{user?.name ? `, ${user.name.split(' ')[0]}` : ''}</Text>
-            <Text style={styles.headerSub}>This month at a glance</Text>
+            <Text style={styles.headerSub}>{currentLabel} at a glance</Text>
           </View>
           <Pressable
             testID="import-nav-button"
@@ -84,8 +119,29 @@ export default function Dashboard() {
           </Pressable>
         </View>
 
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.rangeRow}
+          contentContainerStyle={styles.rangeRowContent}>
+          {RANGES.map(r => (
+            <Pressable
+              key={r.key}
+              testID={`range-chip-${r.key}`}
+              onPress={() => {
+                if (r.key === 'custom') { setCustomModal(true); }
+                else { setRangeKey(r.key); setCustomApplied(null); }
+              }}
+              style={[styles.rangeChip, rangeKey === r.key && styles.rangeChipActive]}>
+              <Text style={[styles.rangeChipText, rangeKey === r.key && styles.rangeChipTextActive]}>
+                {r.label}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+
         <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>SPENT THIS MONTH</Text>
+          <Text style={styles.balanceLabel}>SPENT · {(currentLabel || '').toUpperCase()}</Text>
           <Text style={styles.balanceAmount} testID="month-spend">
             {formatINR(data?.month_spend || 0)}
           </Text>
@@ -100,6 +156,32 @@ export default function Dashboard() {
             </View>
           </View>
         </View>
+
+        {(accounts?.items?.length || 0) > 0 && (
+          <View style={styles.acctSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Account balances</Text>
+              <Text style={styles.link}>Total {formatINR(accounts?.total || 0)}</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.acctRow}>
+              {accounts!.items.map(a => (
+                <View key={a.account} style={styles.acctCard} testID={`acct-card-${a.account}`}>
+                  <View style={styles.acctIcon}>
+                    <Ionicons name="wallet-outline" size={18} color={theme.color.brand} />
+                  </View>
+                  <Text style={styles.acctName}>Acct {a.account}</Text>
+                  <Text style={styles.acctBalance}>{formatINR(a.balance)}</Text>
+                  <Text style={styles.acctMeta}>
+                    as of {new Date(a.as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {(data?.duplicate_count || 0) > 0 && (
           <Pressable
@@ -237,6 +319,45 @@ export default function Dashboard() {
           </>
         )}
       </ScrollView>
+
+      <Modal visible={customModal} transparent animationType="fade" onRequestClose={() => setCustomModal(false)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard} testID="custom-range-modal">
+            <Text style={styles.modalTitle}>Custom date range</Text>
+            <Text style={styles.modalSub}>Enter dates in YYYY-MM-DD format</Text>
+            <Text style={styles.modalLabel}>Start date</Text>
+            <TextInput
+              testID="custom-start-input"
+              value={customStart}
+              onChangeText={setCustomStart}
+              placeholder="2026-01-01"
+              placeholderTextColor={theme.color.onSurfaceTertiary}
+              style={styles.modalInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Text style={styles.modalLabel}>End date</Text>
+            <TextInput
+              testID="custom-end-input"
+              value={customEnd}
+              onChangeText={setCustomEnd}
+              placeholder="2026-01-31"
+              placeholderTextColor={theme.color.onSurfaceTertiary}
+              style={styles.modalInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.modalActions}>
+              <Pressable testID="custom-cancel" onPress={() => setCustomModal(false)} style={styles.modalSecondary}>
+                <Text style={styles.modalSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable testID="custom-apply" onPress={applyCustom} style={styles.modalPrimary}>
+                <Text style={styles.modalPrimaryText}>Apply</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -300,4 +421,28 @@ const styles = StyleSheet.create({
   secondaryBtn: { marginTop: theme.spacing.md, paddingHorizontal: theme.spacing.xl, paddingVertical: 12 },
   secondaryBtnText: { color: theme.color.brand, fontWeight: '600', fontSize: 14 },
   muted: { color: theme.color.onSurfaceTertiary, textAlign: 'center', padding: theme.spacing.lg, fontSize: 13 },
+  rangeRow: { paddingBottom: theme.spacing.md, marginBottom: theme.spacing.sm },
+  rangeRowContent: { paddingHorizontal: theme.spacing.lg, gap: 8, alignItems: 'center' },
+  rangeChip: { height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: theme.color.surfaceSecondary, borderWidth: 1, borderColor: theme.color.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  rangeChipActive: { backgroundColor: theme.color.surfaceInverse, borderColor: theme.color.surfaceInverse },
+  rangeChipText: { fontSize: 13, color: theme.color.onSurfaceSecondary, fontWeight: '600' },
+  rangeChipTextActive: { color: '#fff' },
+  acctSection: { marginTop: theme.spacing.xl },
+  acctRow: { paddingHorizontal: theme.spacing.lg, gap: 10 },
+  acctCard: { width: 160, backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.color.border },
+  acctIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center', marginBottom: theme.spacing.sm },
+  acctName: { fontSize: 12, color: theme.color.onSurfaceTertiary, fontWeight: '600' },
+  acctBalance: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface, marginTop: 2 },
+  acctMeta: { fontSize: 11, color: theme.color.onSurfaceTertiary, marginTop: 4 },
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: theme.spacing.xl },
+  modalCard: { backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.lg, padding: theme.spacing.xl, width: '100%', maxWidth: 380 },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface },
+  modalSub: { fontSize: 13, color: theme.color.onSurfaceTertiary, marginTop: theme.spacing.xs },
+  modalLabel: { fontSize: 12, letterSpacing: 0.5, color: theme.color.onSurfaceTertiary, fontWeight: '700', marginTop: theme.spacing.md, textTransform: 'uppercase' },
+  modalInput: { backgroundColor: theme.color.surfaceTertiary, padding: theme.spacing.md, borderRadius: theme.radius.md, fontSize: 15, color: theme.color.onSurface, marginTop: theme.spacing.xs },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: theme.spacing.lg },
+  modalSecondary: { paddingHorizontal: theme.spacing.lg, paddingVertical: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceTertiary },
+  modalSecondaryText: { color: theme.color.onSurface, fontWeight: '600' },
+  modalPrimary: { paddingHorizontal: theme.spacing.lg, paddingVertical: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.brand },
+  modalPrimaryText: { color: '#fff', fontWeight: '700' },
 });

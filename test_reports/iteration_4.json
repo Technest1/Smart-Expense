@@ -1,0 +1,41 @@
+{
+  "summary": "Sprint 3 backend additions verified end-to-end. Created /app/backend/tests/test_sprint3_dashboard_analytics_balances.py with 33 test cases covering: dashboard date-range resolution (today/week/month/all/custom + validation edges), budgets population only when window overlaps current month, month_spend/by_category debit-only + non-duplicate + within-window, GET /api/accounts/balances (latest-per-account + total sum), GET /api/analytics/by-merchant (sort DESC by total, limit clamped to 100, debit-only, default=month), regex parser balance_after extraction (Avl Bal / Available Balance / Bal:), tightened MERCHANT_RE (no Rs.1 leak, AIRTEL POSTPAID BILL captured, Netflix email fallback avoids 'card ending...'), auth 401 enforcement on all new/changed endpoints, and no _id leaks. Full regression: 116/116 tests pass serially (all sprints). Sprint 3 file alone: 33/33 pass in both serial (-n 0) and default xdist parallel. NOTE: Full-suite parallel run has 5 PRE-EXISTING race failures in test_expensesync_backend.py + test_sprint2_budgets_analytics.py due to shared user_test000001 across their `clean_txns` fixtures across xdist workers — not caused by sprint 3 changes; those files pass 83/83 when run without sprint3 file only because they happen to be scheduled on the same worker.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/dashboard?range=custom (no start/end)", "issue": "Silently falls back to first-of-month → now (label still 'Custom'). Per spec this is desired ('should NOT 400'), but the label='Custom' with an implicit window may confuse clients. Consider echoing an 'inferred: true' flag or setting label to 'This month' when both start and end are missing."},
+      {"endpoint": "_resolve_date_range", "issue": "range=week uses (now - 6 days) at midnight → now — labeled 'Last 7 days' but is actually a partial 7-day span (today counted). Correct per common UX; just document."},
+      {"endpoint": "GET /api/accounts/balances", "issue": "Sorted by balance DESC (highest first). Users typically want most-recent-activity or by-account grouping. Cosmetic — not a bug."},
+      {"endpoint": "GET /api/dashboard budgets logic", "issue": "is_current_month = start_dt >= month_start AND end_dt >= month_start. A custom window like start=Dec 15 → end=Jan 15 (spans past+current month) would set is_current_month=False (start_dt < month_start) and hide budgets entirely, even though part of the range is in the current month. Consider is_current_month = end_dt >= month_start (any overlap)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": [], "react_native_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_sprint3_dashboard_analytics_balances.py",
+    "/app/test_reports/pytest/pytest_sprint3.xml",
+    "/app/test_reports/pytest/pytest_sprint3_full_serial.xml"
+  ],
+  "action_items": [
+    "None blocking — all sprint 3 features validated against spec.",
+    "Optional (test-infra, not sprint 3): fix pre-existing xdist parallel flakiness — test_expensesync_backend.py + test_sprint2_budgets_analytics.py share user_test000001 with per-test wipe fixtures; when scheduled on different workers under --dist loadscope they race. Either (a) give each test file its own user_id (as sprint 3 file now does), or (b) mark those classes with `pytest.mark.xdist_group(\"shared_user\")` + run with `--dist loadgroup`, or (c) use pytest-xdist's `--dist=no` in CI. Full suite already passes 116/116 in serial (-n 0).",
+    "Optional (product): revisit budgets-visibility rule for custom ranges that span past+current month (see minor issue above)."
+  ],
+  "critical_code_review_comments": [
+    "server.py grew to 892 lines — still past the 700-line soft limit flagged in prior iterations. Sprint 3 added ~150 lines (BALANCE_RE, _resolve_date_range, /accounts/balances, /analytics/by-merchant, dashboard range params, MERCHANT_EMAIL_RES). Time to split into modules (routers/parser/dashboard/analytics/accounts).",
+    "Duplicate 'range envelope' code in /api/dashboard and /api/analytics/by-merchant — both build the same `{'range': {'key', 'label', 'start', 'end'}}` dict. Extract into a helper.",
+    "MERCHANT_RE uses `(?!(?:rs\\.?|inr|₹))` lookahead to reject currency-prefixed captures — correct. BUT it still uses `[A-Za-z][A-Za-z0-9 &.'\\-]{2,40}?` non-greedy which can under-capture multi-word merchants when the terminator matches early. Test case for 'AIRTEL POSTPAID BILL' passed only because the alternation matches ` on|ref|...|.` (period). Consider adding word-boundary and letting the regex be greedy up to the terminator.",
+    "BALANCE_RE will pick up 'Avl Lmt: Rs.45000' (credit-card available *limit*) as balance_after because 'bal' pattern is optional in the leading alternation. False positive risk. Consider explicit alternation without 'bal' shortcut, or exclude 'Avl Lmt'.",
+    "_resolve_date_range treats range='custom' with both start=None and end=None as 'fall through to month' — the returned label is still 'This month', not 'Custom'. Good — matches actual window. But there's an inconsistency: if only start OR only end is provided, label='Custom' and the other side is auto-filled. Documented behavior mismatch with the label.",
+    "GET /api/accounts/balances: relies on `find(...).sort(txn_date, -1)` and takes the first hit per account. If two txns have identical txn_date, the tie-break is Mongo's natural order — potentially non-deterministic. Add a secondary sort key (created_at desc) for stability.",
+    "GET /api/analytics/by-merchant: `_merchant_key` uses first-token lowercase — so 'AMAZON' and 'AMAZON INDIA' merge, but 'PVL AMAZON' would key as 'pvl' and be a separate bucket. Consider fuzzy-normalize (drop leading bank/prefix noise)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sprint3_dashboard_analytics_balances.py (new — 33 test cases in a single class TestSprint3All; uses dedicated user_id 'user_sprint3_test' + token 'test-token-sprint3-xyz' to avoid xdist races)"
+  ],
+  "success_rate": {"backend": "100% on sprint 3 (33/33); 100% on full regression in serial (116/116); 111/116 under default xdist parallel due to pre-existing conftest race unrelated to sprint 3", "frontend": "not tested (backend-only per request)"},
+  "seed_data_creation": "Sprint 3 test file seeds its own synthetic user (user_sprint3_test / test-token-sprint3-xyz) via module-scoped autouse fixture. Seeds 7 deterministic transactions across today/yesterday/-3d/this-month-early/last-month/two-months-ago plus one duplicate. Times are always in the past (delta computed from wall clock to avoid midnight-edge flakes). Cleanup on module teardown.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Sprint 3 file: /app/backend/tests/test_sprint3_dashboard_analytics_balances.py. Uses OWN user (user_sprint3_test / bearer test-token-sprint3-xyz) — do NOT reuse the shared user_test000001 in new sprint 3 tests; racing with conftest.py autouse seed_test_session under xdist causes flakes. Run: `EXPO_PUBLIC_BACKEND_URL=... MONGO_URL=... DB_NAME=... pytest backend/tests/test_sprint3_dashboard_analytics_balances.py`. All 33 tests are consolidated into a SINGLE class `TestSprint3All` so pytest-xdist's `--dist loadscope` (configured in /app/backend/pytest.ini) pins them to one worker. For full-suite runs prefer `-n 0` — 5 pre-existing sprint1/sprint2 tests race under xdist parallel due to shared user_test000001 + clean_txns per-test wipes. server.py now 892 lines — needs module split.",
+  "rca_of_issue": "N/A — no sprint 3 production bugs. The parallel-mode failures (5 tests in existing sprint1/sprint2 files) are a pre-existing test-infrastructure race, not a sprint 3 regression: conftest.py's session-scoped autouse `seed_test_session` fires on each xdist worker and wipes user_test000001; test files that share that user_id via `clean_txns` collide when distributed to different workers by `--dist loadscope`. Adding sprint 3 as a 4th file shifted the scheduling and exposed the pre-existing race. Sprint 3 file itself isolates via its own user_id and is race-free."
+}

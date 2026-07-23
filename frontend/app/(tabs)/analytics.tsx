@@ -11,6 +11,7 @@ type CatItem = { category: string; amount: number };
 type Dash = { by_category: CatItem[]; month_spend: number };
 type Trend = { series: { month: string; label: string; amount: number }[] };
 type RecurItem = { merchant: string; category: string; avg_amount: number; months: number; last_seen: string };
+type MerchItem = { merchant: string; category: string; total: number; count: number; avg: number };
 
 const { width } = Dimensions.get('window');
 
@@ -19,17 +20,19 @@ export default function AnalyticsScreen() {
   const [dash, setDash] = useState<Dash | null>(null);
   const [trend, setTrend] = useState<Trend | null>(null);
   const [recurring, setRecurring] = useState<{ items: RecurItem[]; total_monthly: number } | null>(null);
+  const [merchants, setMerchants] = useState<{ items: MerchItem[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [d, t, r] = await Promise.all([
+      const [d, t, r, m] = await Promise.all([
         apiFetch<Dash>('/dashboard'),
         apiFetch<Trend>('/analytics/monthly-trend?months=6'),
         apiFetch<{ items: RecurItem[]; total_monthly: number }>('/analytics/recurring'),
+        apiFetch<{ items: MerchItem[] }>('/analytics/by-merchant?range=month&limit=10'),
       ]);
-      setDash(d); setTrend(t); setRecurring(r);
+      setDash(d); setTrend(t); setRecurring(r); setMerchants(m);
     } catch {}
   }, []);
 
@@ -71,6 +74,41 @@ export default function AnalyticsScreen() {
 
         <Section title="Last 6 months">
           <MonthlyBars data={trend?.series || []} />
+        </Section>
+
+        <Section title="Top merchants"
+                subtitle={merchants?.items?.length ? 'This month' : undefined}>
+          {(merchants?.items?.length || 0) === 0 ? (
+            <Text style={styles.empty}>No merchant spending recorded for this month.</Text>
+          ) : (
+            <View>
+              {merchants!.items.map((m, i) => {
+                const top = merchants!.items[0]?.total || 1;
+                const pct = Math.round((m.total / top) * 100);
+                const color = CATEGORY_COLORS[m.category] || theme.color.brand;
+                return (
+                  <View key={m.merchant + i} style={[styles.merchRow, i > 0 && styles.rowBorder]} testID={`merch-row-${i}`}>
+                    <View style={[styles.merchIcon, { backgroundColor: color + '22' }]}>
+                      <Text style={styles.merchLetter}>{(m.merchant || '?').charAt(0).toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={styles.merchTopLine}>
+                        <Text style={styles.merchName} numberOfLines={1}>{m.merchant}</Text>
+                        <Text style={styles.merchTotal}>{formatINR(m.total)}</Text>
+                      </View>
+                      <View style={styles.merchBarBg}>
+                        <View style={[styles.merchBarFill, { width: `${pct}%`, backgroundColor: color }]} />
+                      </View>
+                      <View style={styles.merchMeta}>
+                        <Text style={styles.merchCat}>{m.category}</Text>
+                        <Text style={styles.merchCount}>{m.count} txn{m.count > 1 ? 's' : ''} · avg {formatINR(m.avg)}</Text>
+                      </View>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </Section>
 
         <Section title="Recurring subscriptions"
@@ -213,4 +251,15 @@ const styles = StyleSheet.create({
   recurAmt: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface },
   cta: { marginTop: theme.spacing.xl, marginHorizontal: theme.spacing.lg, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: theme.color.brandTertiary, padding: theme.spacing.md, borderRadius: theme.radius.md },
   ctaText: { flex: 1, color: theme.color.brand, fontWeight: '700', fontSize: 14 },
+  merchRow: { flexDirection: 'row', gap: 12, paddingVertical: theme.spacing.sm },
+  merchIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  merchLetter: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface },
+  merchTopLine: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  merchName: { flex: 1, fontSize: 14, fontWeight: '600', color: theme.color.onSurface },
+  merchTotal: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface },
+  merchBarBg: { height: 4, backgroundColor: theme.color.surfaceTertiary, borderRadius: 2, marginTop: 6, overflow: 'hidden' },
+  merchBarFill: { height: 4, borderRadius: 2 },
+  merchMeta: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
+  merchCat: { fontSize: 11, color: theme.color.onSurfaceTertiary },
+  merchCount: { fontSize: 11, color: theme.color.onSurfaceTertiary },
 });

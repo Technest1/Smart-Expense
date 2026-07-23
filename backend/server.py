@@ -74,6 +74,7 @@ class Transaction(BaseModel):
     source: Literal["sms", "email", "manual"] = "sms"
     account: Optional[str] = None
     ref_id: Optional[str] = None
+    balance_after: Optional[float] = None
     raw_text: str = ""
     parser: Literal["regex", "ai", "manual"] = "regex"
     is_duplicate: bool = False
@@ -206,9 +207,27 @@ DEBIT_RE = re.compile(r"\b(debited|debit|spent|paid|withdrawn|sent|used for|char
 CREDIT_RE = re.compile(r"\b(credited|credit|received|deposited|refunded)\b", re.IGNORECASE)
 PROMO_RE = re.compile(r"\b(cashback|discount|offer|reward|coupon|t&c\s*apply|apply now|earn up to|get\s+\d+%)\b", re.IGNORECASE)
 REF_RE = re.compile(r"(?:ref(?:no|erence)?[:\s#]*|txn[:\s#]*|upi ref[:\s]*|imps[:\s]*)([A-Z0-9]{6,})", re.IGNORECASE)
-MERCHANT_RE = re.compile(r"(?:to|at|towards|for)\s+([A-Za-z0-9][A-Za-z0-9 &.'\-]{2,40}?)(?:\s+on|\s+ref|\s+upi|\s+txn|\.|,|$)", re.IGNORECASE)
+# Prefer "to/at MERCHANT" but skip if next token is a currency marker.
+MERCHANT_RE = re.compile(
+    r"(?:to|at|towards|for)\s+"
+    r"(?!(?:rs\.?|inr|₹))"
+    r"([A-Za-z][A-Za-z0-9 &.'\-]{2,40}?)"
+    r"(?:\s+on|\s+ref|\s+upi|\s+txn|\s+via|\.|,|$)",
+    re.IGNORECASE,
+)
+# Fallback patterns for emails and less structured formats.
+MERCHANT_EMAIL_RES = [
+    re.compile(r"payment (?:received|made) for\s+([A-Za-z][A-Za-z0-9 &.'\-]{2,40}?)(?:\s+subscription|\.|,)", re.IGNORECASE),
+    re.compile(r"your\s+([A-Za-z][A-Za-z0-9]{2,20})\s+order", re.IGNORECASE),
+    re.compile(r"(?:from|by)\s+([A-Z][A-Z0-9 &.'\-]{2,40}?)(?=\s+(?:on|ref|for|\.|,|$))"),
+]
 ACCOUNT_RE = re.compile(r"a/?c\s*(?:no\.?)?\s*[xX*]*([0-9]{2,6})", re.IGNORECASE)
 DATE_RE = re.compile(r"\b(\d{1,2}[-/](?:\d{1,2}|[A-Za-z]{3})[-/]\d{2,4})\b")
+BALANCE_RE = re.compile(
+    r"(?:avl(?:bl)?\.?\s*bal(?:ance)?|available\s*bal(?:ance)?|bal(?:ance)?)"
+    r"[:\s]*(?:inr|rs\.?|₹)?\s*([0-9]{1,3}(?:[,][0-9]{2,3})*(?:\.\d{1,2})?)",
+    re.IGNORECASE,
+)
 
 def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]:
     if PROMO_RE.search(text):
@@ -228,7 +247,16 @@ def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]
     merchant = "Unknown"
     mm = MERCHANT_RE.search(text)
     if mm:
-        merchant = mm.group(1).strip(" .,-")
+        candidate = mm.group(1).strip(" .,-")
+        first_word = candidate.split()[0].lower() if candidate.split() else ""
+        if first_word not in {"card", "account", "acct", "a/c", "you", "your", "the"}:
+            merchant = candidate
+    if merchant == "Unknown" or not merchant:
+        for pat in MERCHANT_EMAIL_RES:
+            fm = pat.search(text)
+            if fm:
+                merchant = fm.group(1).strip(" .,-")
+                break
     ref = None
     rm = REF_RE.search(text)
     if rm:
@@ -238,12 +266,21 @@ def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]
     if am:
         account = f"XX{am.group(1)}"
 
+    balance_after = None
+    bm = BALANCE_RE.search(text)
+    if bm:
+        try:
+            balance_after = float(bm.group(1).replace(",", ""))
+        except Exception:
+            balance_after = None
+
     return {
         "amount": amount,
         "direction": direction,
         "merchant": merchant[:60],
         "ref_id": ref,
         "account": account,
+        "balance_after": balance_after,
         "txn_date": received_at,
         "category": categorize(merchant, text),
         "parser": "regex",
@@ -392,6 +429,7 @@ async def ingest_messages(payload: IngestRequest, authorization: Optional[str] =
             source=item.source,
             account=parsed.get("account"),
             ref_id=parsed.get("ref_id"),
+            balance_after=parsed.get("balance_after"),
             raw_text=text,
             parser=parsed["parser"],
             is_duplicate=bool(dup_of),
@@ -408,23 +446,23 @@ async def ingest_messages(payload: IngestRequest, authorization: Optional[str] =
 
 # ================= SEED SAMPLE =================
 SAMPLE_MESSAGES = [
-    # SMS - HDFC debit
-    ("sms", "HDFC Bank: Rs.499.00 debited from a/c XX1234 on 12-05-25 to SWIGGY BANGALORE. UPI Ref 512345678901. Not you? Call 18002586161",
+    # SMS - HDFC debit with balance
+    ("sms", "HDFC Bank: Rs.499.00 debited from a/c XX1234 on 12-05-25 to SWIGGY BANGALORE. UPI Ref 512345678901. Avl Bal: Rs.24,501.50. Not you? Call 18002586161",
      -1),
-    # SMS - ICICI credit
+    # SMS - ICICI credit with balance
     ("sms", "ICICI Bank Acct XX5678 credited with INR 25000.00 on 10-05-25; UPI:512300110022 from JOHN DOE. Available Bal INR 41,234.55",
      -3),
-    # SMS - UPI to Uber
-    ("sms", "Rs 285.00 debited via UPI to UBER INDIA. Ref no 512456789012 on 11-05-25. -Axis Bank",
+    # SMS - UPI to Uber (Axis) with balance
+    ("sms", "Rs 285.00 debited via UPI to UBER INDIA. Ref no 512456789012 on 11-05-25. Avl Bal Rs.12,455.00 -Axis Bank",
      -2),
-    # SMS - Amazon debit
+    # SMS - Amazon debit on credit card (no balance)
     ("sms", "Your HDFC Credit Card XX9012 was used for Rs.1,299.00 at AMAZON on 09-05-25. Ref: 987654321",
      -4),
     # Duplicate of Swiggy (different ref, same amount/merchant/date)
     ("sms", "Rs.499.00 spent on HDFC Bank Card XX1234 at SWIGGY on 12-05-25. Avl Lmt: Rs.45000",
      -1),
-    # SMS - Airtel bill
-    ("sms", "Rs.899 debited from your account for AIRTEL POSTPAID BILL. Ref: AIRT88291. -SBI",
+    # SMS - Airtel bill (SBI) with balance
+    ("sms", "Rs.899 debited from your account XX3344 for AIRTEL POSTPAID BILL. Ref: AIRT88291. Avl Bal Rs.8,201.00 -SBI",
      -5),
     # Email - Netflix
     ("email", "Payment received for Netflix Premium subscription. Amount: INR 649.00 charged to card ending 4432 on 08-05-2025. Reference NTFX20250508.",
@@ -433,16 +471,16 @@ SAMPLE_MESSAGES = [
     ("email", "Your Flipkart order was placed. Rs. 2,499.00 paid via UPI on 07-05-2025. Transaction reference FKPKT7788221.",
      -7),
     # SMS - Zomato
-    ("sms", "Rs. 342 spent at ZOMATO via UPI on 06-05-25. UPI Ref 501122334455. -HDFC",
+    ("sms", "Rs. 342 spent at ZOMATO via UPI on 06-05-25. UPI Ref 501122334455. Avl Bal Rs.23,860.50 -HDFC",
      -8),
     # SMS - Promotional (should skip)
     ("sms", "Get 50% cashback up to Rs.500 on your next purchase. T&C apply. -Paytm",
      -1),
-    # SMS - Salary credit
-    ("email", "Your salary of INR 85000.00 has been credited to a/c XX5678 on 01-05-2025. Reference SAL20250501.",
+    # Email - Salary credit
+    ("email", "Your salary of INR 85000.00 has been credited to a/c XX5678 on 01-05-2025. Available Balance INR 126,234.55. Reference SAL20250501.",
      -11),
-    # SMS - Metro
-    ("sms", "Rs.60 debited via UPI to DMRC METRO on 12-05-25. UPI Ref 500987654321. -ICICI",
+    # SMS - Metro (ICICI)
+    ("sms", "Rs.60 debited via UPI to DMRC METRO on 12-05-25. UPI Ref 500987654321. Avl Bal Rs.41,174.55 -ICICI",
      -1),
 ]
 
@@ -505,57 +543,91 @@ async def delete_txn(txn_id: str, authorization: Optional[str] = Header(None)):
     return {"deleted": r.deleted_count}
 
 # ================= DASHBOARD =================
-@api_router.get("/dashboard")
-async def dashboard(authorization: Optional[str] = Header(None)):
-    user = await get_current_user(authorization)
+def _resolve_date_range(range_key: Optional[str], start: Optional[str], end: Optional[str]):
+    """Return (start_dt, end_dt, label). range_key one of: today, week, month, custom, all."""
     now = datetime.now(timezone.utc)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    key = (range_key or "month").lower()
+    if key == "today":
+        s = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return s, now, "Today"
+    if key == "week":
+        s = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return s, now, "Last 7 days"
+    if key == "all":
+        s = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        return s, now, "All time"
+    if key == "custom" and (start or end):
+        try:
+            s = datetime.fromisoformat(start) if start else now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            e = datetime.fromisoformat(end) if end else now
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid start/end ISO datetime")
+        if s.tzinfo is None:
+            s = s.replace(tzinfo=timezone.utc)
+        if e.tzinfo is None:
+            e = e.replace(tzinfo=timezone.utc)
+        if e < s:
+            raise HTTPException(status_code=400, detail="end must be >= start")
+        return s, e, "Custom"
+    # default: month
+    s = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return s, now, "This month"
+
+
+@api_router.get("/dashboard")
+async def dashboard(
+    authorization: Optional[str] = Header(None),
+    range: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+):
+    user = await get_current_user(authorization)
+    start_dt, end_dt, label = _resolve_date_range(range, start, end)
 
     txns = await db.transactions.find(
-        {"user_id": user.user_id, "is_duplicate": False}, {"_id": 0}
-    ).sort("txn_date", -1).to_list(1000)
+        {
+            "user_id": user.user_id,
+            "is_duplicate": False,
+            "txn_date": {"$gte": start_dt, "$lte": end_dt},
+        },
+        {"_id": 0},
+    ).sort("txn_date", -1).to_list(2000)
 
-    total_spend_month = 0.0
-    total_income_month = 0.0
-    by_category = {}
+    total_spend = 0.0
+    total_income = 0.0
+    by_category: dict = {}
     for t in txns:
-        td = t["txn_date"]
-        if isinstance(td, str):
-            try:
-                td = datetime.fromisoformat(td)
-            except Exception:
-                td = now
-        if td.tzinfo is None:
-            td = td.replace(tzinfo=timezone.utc)
-        if td >= month_start:
-            if t["direction"] == "debit":
-                total_spend_month += t["amount"]
-                by_category[t["category"]] = by_category.get(t["category"], 0) + t["amount"]
-            else:
-                total_income_month += t["amount"]
+        if t["direction"] == "debit":
+            total_spend += t["amount"]
+            by_category[t["category"]] = by_category.get(t["category"], 0) + t["amount"]
+        else:
+            total_income += t["amount"]
 
     duplicate_count = await db.transactions.count_documents(
         {"user_id": user.user_id, "is_duplicate": True}
     )
 
-    # Budgets — evaluate usage vs limit for current month
-    budgets_docs = await db.budgets.find({"user_id": user.user_id}, {"_id": 0}).to_list(50)
+    # Budgets — only make sense for the current month window
     budgets_out = []
-    for b in budgets_docs:
-        spent = round(by_category.get(b["category"], 0), 2)
-        pct = round((spent / b["monthly_limit"] * 100), 1) if b["monthly_limit"] else 0.0
-        budgets_out.append({
-            "id": b["id"],
-            "category": b["category"],
-            "monthly_limit": b["monthly_limit"],
-            "spent": spent,
-            "pct": pct,
-            "over_budget": spent >= b["monthly_limit"],
-            "near_limit": (not (spent >= b["monthly_limit"])) and pct >= 80.0,
-        })
-    budgets_out.sort(key=lambda x: -x["pct"])
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    is_current_month = start_dt >= month_start and end_dt >= month_start
+    if is_current_month:
+        budgets_docs = await db.budgets.find({"user_id": user.user_id}, {"_id": 0}).to_list(50)
+        for b in budgets_docs:
+            spent = round(by_category.get(b["category"], 0), 2)
+            pct = round((spent / b["monthly_limit"] * 100), 1) if b["monthly_limit"] else 0.0
+            budgets_out.append({
+                "id": b["id"],
+                "category": b["category"],
+                "monthly_limit": b["monthly_limit"],
+                "spent": spent,
+                "pct": pct,
+                "over_budget": spent >= b["monthly_limit"],
+                "near_limit": (not (spent >= b["monthly_limit"])) and pct >= 80.0,
+            })
+        budgets_out.sort(key=lambda x: -x["pct"])
 
-    # Recurring — merchants with >=2 debit txns in different months, similar amount band
     recurring_count = 0
     try:
         recs = await _detect_recurring(user.user_id)
@@ -564,8 +636,10 @@ async def dashboard(authorization: Optional[str] = Header(None)):
         recurring_count = 0
 
     return {
-        "month_spend": round(total_spend_month, 2),
-        "month_income": round(total_income_month, 2),
+        "range": {"key": (range or "month").lower(), "label": label,
+                  "start": start_dt.isoformat(), "end": end_dt.isoformat()},
+        "month_spend": round(total_spend, 2),
+        "month_income": round(total_income, 2),
         "by_category": [
             {"category": k, "amount": round(v, 2)} for k, v in
             sorted(by_category.items(), key=lambda x: -x[1])
@@ -711,6 +785,75 @@ async def analytics_recurring(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     items = await _detect_recurring(user.user_id)
     return {"items": items, "total_monthly": round(sum(x["avg_amount"] for x in items), 2)}
+
+@api_router.get("/analytics/by-merchant")
+async def analytics_by_merchant(
+    authorization: Optional[str] = Header(None),
+    range: Optional[str] = None,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 20,
+):
+    user = await get_current_user(authorization)
+    start_dt, end_dt, label = _resolve_date_range(range, start, end)
+    limit = max(1, min(limit, 100))
+    txns = await db.transactions.find(
+        {
+            "user_id": user.user_id, "is_duplicate": False, "direction": "debit",
+            "txn_date": {"$gte": start_dt, "$lte": end_dt},
+        },
+        {"_id": 0, "merchant": 1, "amount": 1, "category": 1},
+    ).to_list(5000)
+
+    grouped: dict = {}
+    for t in txns:
+        key = _merchant_key(t.get("merchant", ""))
+        if not key:
+            continue
+        g = grouped.setdefault(key, {
+            "merchant": t["merchant"],
+            "category": t.get("category", "Uncategorized"),
+            "total": 0.0, "count": 0,
+        })
+        # Keep the longer/most detailed merchant name we've seen
+        if len(t.get("merchant", "")) > len(g["merchant"]):
+            g["merchant"] = t["merchant"]
+        g["total"] += t["amount"]
+        g["count"] += 1
+    items = sorted(grouped.values(), key=lambda x: -x["total"])[:limit]
+    for i in items:
+        i["total"] = round(i["total"], 2)
+        i["avg"] = round(i["total"] / max(i["count"], 1), 2)
+    return {
+        "range": {"key": (range or "month").lower(), "label": label,
+                  "start": start_dt.isoformat(), "end": end_dt.isoformat()},
+        "items": items,
+    }
+
+# ================= ACCOUNTS =================
+@api_router.get("/accounts/balances")
+async def account_balances(authorization: Optional[str] = Header(None)):
+    """Return the last-known balance per account (if any SMS reported one)."""
+    user = await get_current_user(authorization)
+    txns = await db.transactions.find(
+        {"user_id": user.user_id, "account": {"$ne": None},
+         "balance_after": {"$ne": None}, "is_duplicate": False},
+        {"_id": 0, "account": 1, "balance_after": 1, "txn_date": 1},
+    ).sort("txn_date", -1).to_list(2000)
+
+    latest: dict = {}
+    for t in txns:
+        acc = t["account"]
+        if acc in latest:
+            continue
+        latest[acc] = {
+            "account": acc,
+            "balance": round(t["balance_after"], 2),
+            "as_of": t["txn_date"].isoformat() if hasattr(t["txn_date"], "isoformat") else t["txn_date"],
+        }
+    items = sorted(latest.values(), key=lambda x: -x["balance"])
+    total = round(sum(x["balance"] for x in items), 2)
+    return {"items": items, "total": total}
 
 # ================= HEALTH =================
 @api_router.get("/")

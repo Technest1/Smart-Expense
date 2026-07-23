@@ -69,7 +69,7 @@ export default function LoginScreen() {
           </View>
           <Text style={styles.brand}>ExpenseSync</Text>
           <Text style={styles.tagline}>
-            Track every expense from your SMS and email — deduped, categorised, and always in your pocket.
+            Never miss an expense again; your budget updates itself.
           </Text>
         </SafeAreaView>
       </View>
