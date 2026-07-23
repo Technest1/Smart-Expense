@@ -42,6 +42,7 @@ export default function Dashboard() {
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
   const [customApplied, setCustomApplied] = useState<{ start: string; end: string } | null>(null);
+  const [balancesSheet, setBalancesSheet] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -159,27 +160,24 @@ export default function Dashboard() {
 
         {(accounts?.items?.length || 0) > 0 && (
           <View style={styles.acctSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Account balances</Text>
-              <Text style={styles.link}>Total {formatINR(accounts?.total || 0)}</Text>
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.acctRow}>
-              {accounts!.items.map(a => (
-                <View key={a.account} style={styles.acctCard} testID={`acct-card-${a.account}`}>
-                  <View style={styles.acctIcon}>
-                    <Ionicons name="wallet-outline" size={18} color={theme.color.brand} />
-                  </View>
-                  <Text style={styles.acctName}>Acct {a.account}</Text>
-                  <Text style={styles.acctBalance}>{formatINR(a.balance)}</Text>
-                  <Text style={styles.acctMeta}>
-                    as of {new Date(a.as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}
+            <Pressable
+              testID="total-balance-tile"
+              onPress={() => setBalancesSheet(true)}
+              style={styles.totalBalCard}>
+              <View style={styles.totalBalRow}>
+                <View style={styles.totalBalIcon}>
+                  <Ionicons name="wallet" size={20} color={theme.color.brand} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.totalBalLabel}>TOTAL BALANCE</Text>
+                  <Text style={styles.totalBalAmount} testID="total-balance-amount">{formatINR(accounts!.total)}</Text>
+                  <Text style={styles.totalBalMeta}>
+                    across {accounts!.items.length} account{accounts!.items.length > 1 ? 's' : ''}
                   </Text>
                 </View>
-              ))}
-            </ScrollView>
+                <Ionicons name="chevron-forward" size={20} color={theme.color.onSurfaceTertiary} />
+              </View>
+            </Pressable>
           </View>
         )}
 
