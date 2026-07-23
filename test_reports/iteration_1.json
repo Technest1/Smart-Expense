@@ -1,0 +1,42 @@
+{
+  "summary": "Sprint-1 ExpenseSync backend tested end-to-end via public preview URL. 30/30 pytest cases pass covering: health, auth (session/me/logout), 401 enforcement on all protected routes, seed-sample counts (saved/duplicates/skipped), regex parser across HDFC/ICICI/Axis/SBI SMS + email formats, category classification (Swiggy→Food, Uber→Transport, Amazon→Shopping), promotional-SMS skip, dedup by ref_id and dedup by amount+normalized-merchant+date, transaction list filters (category/source/include_duplicates), GET single (with raw_text) + 404, PATCH category & is_duplicate with GET-verification, DELETE with GET-verification, and dashboard shape (month_spend, month_income, sorted by_category, duplicate_count, recent limited to 5, total_transactions) with duplicates properly excluded from month_spend. No MongoDB _id leaks in any response.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/messages/ingest, POST /api/messages/seed-sample", "issue": "Endpoints are not idempotent from the client's perspective and there is no /api/messages/reset. Re-running seed-sample bloats duplicates monotonically. Not a blocker for sprint-1 but worth adding a reset/dev endpoint or gating seed to first-run."},
+      {"endpoint": "GET /api/dashboard", "issue": "'recent' returns non-duplicate txns only (filtered upstream). Product intent seems fine but PRD mentions a 'duplicate banner' — recent[] intentionally excludes duplicates so any UI-side duplicate list must call /api/transactions?include_duplicates=true separately (documenting, not a bug)."},
+      {"endpoint": "pytest.ini", "issue": "Suite is configured with -n 2 --dist loadscope. Because all tests share a single seeded user in the preview DB, cross-class parallelism causes fixture races (clean_txns in one class wipes data another class just seeded). Confirmed by getting 3 failures under -n 2 and 0 failures under -n 0. Recommend either serial run OR per-worker user isolation."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_expensesync_backend.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: add per-worker user isolation in conftest (e.g., derive user_id from worker id) so pytest-xdist -n 2 --dist loadscope works without races. Current workaround: run with -n 0.",
+    "Optional: add POST /api/messages/reset (auth-gated) to wipe the caller's txns — makes demo/reseed cleaner for repeated seed-sample invocations."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 522 lines — still under 700 but growing. Consider splitting into modules (auth.py, parser.py, transactions.py, dashboard.py) when sprint-2 adds Gmail sync and charts.",
+    "get_current_user re-runs on every request and does two Mongo round-trips (session + user). Fine for sprint-1 volumes, but consider a $lookup pipeline or short in-memory cache when traffic grows.",
+    "regex_parse categorize() is called with merchant before merchant is trimmed — non-issue functionally, but calling it after merchant assignment would be slightly cleaner.",
+    "ai_parse tries json.loads on stripped ``` fences but does not handle 'json' prefix without newline consistently — low risk since regex catches 99% of Indian bank SMS; only a concern if AI fallback is exercised heavily."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py (new)",
+    "/app/backend/tests/test_expensesync_backend.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested (per request)"},
+  "seed_data_creation": "conftest.py seeds user_id=user_test000001 / session_token=test-token-xyz-123 in Mongo per /app/memory/test_credentials.md. All test-created transactions are prefixed via that user and wiped by teardown; no other seed data introduced.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend is stable at 100%. Test suite at /app/backend/tests/ is reusable. IMPORTANT: run with `pytest -n 0` (serial) OR fix conftest to give each xdist worker its own user_id — otherwise the shared test user causes cross-worker races (3 flaky failures observed under -n 2). Public URL is https://smart-expenses-50.preview.emergentagent.com and the frontend .env uses EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL).",
+  "rca_of_issue": "N/A — no production bugs found. The only 'issue' encountered during testing was pytest-xdist race on shared test user (documented above)."
+}
