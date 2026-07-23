@@ -1,0 +1,41 @@
+{
+  "summary": "Sprint-2 ExpenseSync backend tested. 27/27 pytest cases pass covering: budgets CRUD (create, idempotent-per-category update, 400 on non-positive limit, list, delete), dashboard new fields (budgets[] with spent/pct/over_budget/near_limit + recurring_count; over_budget=True at exact boundary spent==limit; duplicates excluded from spent), analytics/monthly-trend (6-month series in oldest→newest order with month/label/amount, missing months=0, sum of debits excluding duplicates & credits, months param clamped to 1..12), analytics/recurring (>=2 distinct months in last 4 months within ±15% avg; excludes single-month, high-variance, credits, and duplicates; dashboard.recurring_count matches len(items); total_monthly = sum(avg_amount); category and last_seen populated), and auth enforcement (401 without bearer and with bad bearer) on all new endpoints. Verified no MongoDB _id leaked on /api/budgets, /api/analytics/*, and dashboard.budgets subtree. Sprint-1 tests were not re-run per instructions.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/analytics/monthly-trend", "issue": "Month-stepping uses `cursor - timedelta(days=1)` then `.replace(day=1)` in a loop. Works for the common case, but if the current-month datetime ever lands on very early hours combined with DST/edge dates it is fragile. Consider using calendar-aware math (e.g. dateutil.relativedelta(months=1)). Cosmetic; all 6-month/12-month orderings verified correct."},
+      {"endpoint": "GET /api/analytics/recurring", "issue": "Fuzzy merchant matching uses only the first significant token via `_merchant_key`; the returned `merchant` field is whichever raw string was on the latest txn. If a user has two variants (e.g. 'NETFLIX' and 'Netflix India'), the response returns only one label — fine for now but worth documenting in UI."},
+      {"endpoint": "POST /api/budgets", "issue": "Uses HTTP 200 on both create and update. Not strictly wrong for an upsert endpoint (mirrors the spec's 'idempotent per category (updates limit)'), but 201-on-create / 200-on-update would be more conventional if wanted."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sprint2_budgets_analytics.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_sprint2.xml"
+  ],
+  "action_items": [
+    "None required — sprint-2 acceptance criteria fully met. Optionally: switch monthly-trend stepping to `dateutil.relativedelta(months=1)` for calendar correctness, and consider 201 status on new budget creation."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 695 lines (was 522 in sprint-1). Very close to the 700-line soft limit; the next feature should trigger a split (auth.py, parser.py, transactions.py, dashboard.py, budgets.py, analytics.py).",
+    "`/api/dashboard` recomputes recurring on every call by scanning up to 5000 debit txns from the last ~4 months and doing amount-variance math in Python. Fine at current volumes but worth an aggregation pipeline / cached view when txn count grows.",
+    "`_detect_recurring` catches its outer exception in `/api/dashboard` and silently returns 0 recurring — good for resilience but currently masks any real bug. Consider logging the exception in the except branch.",
+    "`analytics_recurring` computes `total_monthly = sum(avg_amount)` which is a decent proxy for 'monthly commitment' but is not truly monthly (e.g. a merchant seen in 2 of last 4 months still contributes full avg). Fine per spec — flagging for future refinement.",
+    "Both new POST endpoints return the raw stored dict without an explicit response_model. Works because `find_one({...},{'_id':0})` strips `_id` and the Pydantic Budget is dict()-serialized, but a `response_model=Budget` would tighten the API contract."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sprint2_budgets_analytics.py (new)"
+  ],
+  "success_rate": {"backend": "100% (27/27 sprint-2 + prior 30/30 sprint-1 still valid)", "frontend": "not tested (per request)"},
+  "seed_data_creation": "Tests insert their own controlled debit/credit txns directly into MongoDB via the shared TEST_USER_ID (user_test000001) using a `fresh` fixture that wipes both `transactions` and `budgets` collections before AND after each test. No global seed pollution. Recurring tests seed same-merchant debits across multiple months (days_ago 2/35/70).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Sprint-2 endpoints (/api/budgets, /api/analytics/monthly-trend, /api/analytics/recurring, dashboard.budgets[], dashboard.recurring_count) are stable at 100%. New test file: /app/backend/tests/test_sprint2_budgets_analytics.py — reusable regression suite. IMPORTANT: run with `pytest -n 0` (serial) because the suite shares one seeded user; the sprint-1 iteration_1 report already documents this. Public URL env var is EXPO_PUBLIC_BACKEND_URL (not EXPO_BACKEND_URL) — /app/frontend/.env; conftest reads it from process env, so export it or source frontend/.env before pytest. Sprint-1 suite (test_expensesync_backend.py) was intentionally NOT re-run per instructions but remains valid.",
+  "rca_of_issue": "N/A — no production bugs found in sprint-2 endpoints."
+}

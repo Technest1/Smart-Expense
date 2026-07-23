@@ -18,7 +18,11 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.smartexpenses.o34x7b"
+      "package": "com.emergent.smartexpenses.o34x7b",
+      "permissions": [
+        "android.permission.READ_SMS",
+        "android.permission.RECEIVE_SMS"
+      ]
     },
     "web": {
       "bundler": "metro",

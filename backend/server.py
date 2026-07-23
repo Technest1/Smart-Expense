@@ -73,6 +73,17 @@ class TxnUpdateRequest(BaseModel):
     merchant: Optional[str] = None
     is_duplicate: Optional[bool] = None
 
+class Budget(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    category: str
+    monthly_limit: float
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class BudgetCreateRequest(BaseModel):
+    category: str
+    monthly_limit: float
+
 # ================= AUTH HELPERS =================
 async def get_current_user(authorization: Optional[str] = Header(None)) -> User:
     if not authorization or not authorization.startswith("Bearer "):
@@ -474,6 +485,31 @@ async def dashboard(authorization: Optional[str] = Header(None)):
         {"user_id": user.user_id, "is_duplicate": True}
     )
 
+    # Budgets — evaluate usage vs limit for current month
+    budgets_docs = await db.budgets.find({"user_id": user.user_id}, {"_id": 0}).to_list(50)
+    budgets_out = []
+    for b in budgets_docs:
+        spent = round(by_category.get(b["category"], 0), 2)
+        pct = round((spent / b["monthly_limit"] * 100), 1) if b["monthly_limit"] else 0.0
+        budgets_out.append({
+            "id": b["id"],
+            "category": b["category"],
+            "monthly_limit": b["monthly_limit"],
+            "spent": spent,
+            "pct": pct,
+            "over_budget": spent >= b["monthly_limit"],
+            "near_limit": (not (spent >= b["monthly_limit"])) and pct >= 80.0,
+        })
+    budgets_out.sort(key=lambda x: -x["pct"])
+
+    # Recurring — merchants with >=2 debit txns in different months, similar amount band
+    recurring_count = 0
+    try:
+        recs = await _detect_recurring(user.user_id)
+        recurring_count = len(recs)
+    except Exception:
+        recurring_count = 0
+
     return {
         "month_spend": round(total_spend_month, 2),
         "month_income": round(total_income_month, 2),
@@ -484,7 +520,144 @@ async def dashboard(authorization: Optional[str] = Header(None)):
         "duplicate_count": duplicate_count,
         "recent": txns[:5],
         "total_transactions": len(txns),
+        "budgets": budgets_out,
+        "recurring_count": recurring_count,
     }
+
+# ================= BUDGETS =================
+@api_router.get("/budgets")
+async def list_budgets(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    items = await db.budgets.find({"user_id": user.user_id}, {"_id": 0}).to_list(50)
+    return {"items": items}
+
+@api_router.post("/budgets")
+async def upsert_budget(payload: BudgetCreateRequest, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    if payload.monthly_limit <= 0:
+        raise HTTPException(status_code=400, detail="monthly_limit must be > 0")
+    existing = await db.budgets.find_one(
+        {"user_id": user.user_id, "category": payload.category}, {"_id": 0}
+    )
+    if existing:
+        await db.budgets.update_one(
+            {"id": existing["id"]}, {"$set": {"monthly_limit": payload.monthly_limit}}
+        )
+        existing["monthly_limit"] = payload.monthly_limit
+        return existing
+    b = Budget(user_id=user.user_id, category=payload.category, monthly_limit=payload.monthly_limit)
+    await db.budgets.insert_one(b.dict())
+    return b.dict()
+
+@api_router.delete("/budgets/{budget_id}")
+async def delete_budget(budget_id: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    r = await db.budgets.delete_one({"id": budget_id, "user_id": user.user_id})
+    return {"deleted": r.deleted_count}
+
+# ================= ANALYTICS =================
+def _month_key(dt: datetime) -> str:
+    return dt.strftime("%Y-%m")
+
+@api_router.get("/analytics/monthly-trend")
+async def monthly_trend(months: int = 6, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    months = max(1, min(months, 12))
+    now = datetime.now(timezone.utc)
+    start = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+             - timedelta(days=32 * (months - 1))).replace(day=1)
+
+    txns = await db.transactions.find(
+        {"user_id": user.user_id, "is_duplicate": False, "direction": "debit",
+         "txn_date": {"$gte": start}},
+        {"_id": 0, "amount": 1, "txn_date": 1},
+    ).to_list(5000)
+
+    buckets = {}
+    for t in txns:
+        td = t["txn_date"]
+        if isinstance(td, str):
+            try: td = datetime.fromisoformat(td)
+            except Exception: continue
+        if td.tzinfo is None:
+            td = td.replace(tzinfo=timezone.utc)
+        buckets[_month_key(td)] = buckets.get(_month_key(td), 0) + t["amount"]
+
+    # Build ordered list of the last N months
+    series = []
+    cursor = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    seen = []
+    for _ in range(months):
+        key = _month_key(cursor)
+        seen.append((key, cursor))
+        # step back one month
+        prev_month_last = cursor - timedelta(days=1)
+        cursor = prev_month_last.replace(day=1)
+    seen.reverse()
+    for key, dt in seen:
+        series.append({
+            "month": key,
+            "label": dt.strftime("%b"),
+            "amount": round(buckets.get(key, 0), 2),
+        })
+    return {"series": series}
+
+async def _detect_recurring(user_id: str) -> list:
+    """Merchants appearing as debit in >=2 distinct months in the last 4 months
+    with amounts within ±15%."""
+    now = datetime.now(timezone.utc)
+    four_months_ago = (now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                       - timedelta(days=32 * 3)).replace(day=1)
+    txns = await db.transactions.find(
+        {"user_id": user_id, "is_duplicate": False, "direction": "debit",
+         "txn_date": {"$gte": four_months_ago}},
+        {"_id": 0, "merchant": 1, "amount": 1, "txn_date": 1, "category": 1},
+    ).to_list(5000)
+
+    by_merchant = {}
+    for t in txns:
+        key = _merchant_key(t.get("merchant", ""))
+        if not key:
+            continue
+        td = t["txn_date"]
+        if isinstance(td, str):
+            try: td = datetime.fromisoformat(td)
+            except Exception: continue
+        if td.tzinfo is None:
+            td = td.replace(tzinfo=timezone.utc)
+        by_merchant.setdefault(key, []).append({
+            "merchant": t["merchant"],
+            "amount": t["amount"],
+            "month": _month_key(td),
+            "category": t.get("category", "Uncategorized"),
+            "txn_date": td,
+        })
+
+    results = []
+    for key, entries in by_merchant.items():
+        months = sorted({e["month"] for e in entries})
+        if len(months) < 2:
+            continue
+        avg = sum(e["amount"] for e in entries) / len(entries)
+        # keep only if amounts consistent within +/- 15%
+        if any(abs(e["amount"] - avg) / avg > 0.15 for e in entries):
+            continue
+        latest = max(entries, key=lambda e: e["txn_date"])
+        results.append({
+            "merchant": latest["merchant"],
+            "category": latest["category"],
+            "avg_amount": round(avg, 2),
+            "months": len(months),
+            "last_seen": latest["txn_date"].isoformat(),
+        })
+    results.sort(key=lambda x: (-x["months"], -x["avg_amount"]))
+    return results
+
+@api_router.get("/analytics/recurring")
+async def analytics_recurring(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    items = await _detect_recurring(user.user_id)
+    return {"items": items, "total_monthly": round(sum(x["avg_amount"] for x in items), 2)}
 
 # ================= HEALTH =================
 @api_router.get("/")
@@ -504,6 +677,7 @@ async def startup():
         pass
     await db.transactions.create_index([("user_id", 1), ("txn_date", -1)])
     await db.transactions.create_index([("user_id", 1), ("ref_id", 1)])
+    await db.budgets.create_index([("user_id", 1), ("category", 1)], unique=True)
     logger.info("Indexes ready.")
 
 app.include_router(api_router)

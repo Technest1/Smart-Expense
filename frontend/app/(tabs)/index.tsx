@@ -15,6 +15,8 @@ type Dash = {
   month_spend: number; month_income: number;
   by_category: { category: string; amount: number }[];
   duplicate_count: number; recent: Txn[]; total_transactions: number;
+  budgets?: { id: string; category: string; monthly_limit: number; spent: number; pct: number; over_budget: boolean; near_limit: boolean }[];
+  recurring_count?: number;
 };
 
 export default function Dashboard() {
@@ -112,6 +114,43 @@ export default function Dashboard() {
               <Text style={styles.dupSub}>Review to clean up your transactions</Text>
             </View>
             <Text style={styles.dupCta}>Review</Text>
+          </Pressable>
+        )}
+
+        {(data?.budgets || []).filter(b => b.over_budget || b.near_limit).slice(0, 2).map(b => (
+          <Pressable
+            key={b.id}
+            testID={`budget-alert-${b.category}`}
+            onPress={() => router.push('/budgets')}
+            style={[styles.dupBanner, b.over_budget && { backgroundColor: '#FBE9E9', borderColor: '#F1CFCF' }]}>
+            <View style={[styles.dupIcon, b.over_budget && { backgroundColor: '#F5D6D6' }]}>
+              <Ionicons name={b.over_budget ? 'flame' : 'trending-up'} size={18} color={b.over_budget ? theme.color.error : theme.color.warning} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.dupTitle}>
+                {b.category} — {b.over_budget ? 'over budget' : 'close to limit'}
+              </Text>
+              <Text style={styles.dupSub}>
+                {formatINR(b.spent)} of {formatINR(b.monthly_limit)} ({Math.round(b.pct)}%)
+              </Text>
+            </View>
+            <Text style={[styles.dupCta, b.over_budget && { color: theme.color.error }]}>Adjust</Text>
+          </Pressable>
+        ))}
+
+        {(data?.recurring_count || 0) > 0 && (
+          <Pressable
+            testID="recurring-card"
+            onPress={() => router.push('/(tabs)/analytics')}
+            style={styles.recurCard}>
+            <View style={styles.recurIconWrap}>
+              <Ionicons name="repeat" size={18} color={theme.color.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.dupTitle}>{data?.recurring_count} recurring subscription{(data?.recurring_count || 0) > 1 ? 's' : ''}</Text>
+              <Text style={styles.dupSub}>Tap to review your monthly commitments</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.color.brand} />
           </Pressable>
         )}
 
@@ -230,6 +269,12 @@ const styles = StyleSheet.create({
   dupTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface },
   dupSub: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
   dupCta: { color: theme.color.brand, fontWeight: '700', fontSize: 13 },
+  recurCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
+    backgroundColor: theme.color.brandTertiary, borderRadius: theme.radius.md, padding: theme.spacing.md,
+  },
+  recurIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#D2DED6', alignItems: 'center', justifyContent: 'center' },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.xl, marginTop: theme.spacing.xl, marginBottom: theme.spacing.sm },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurfaceSecondary },
   link: { color: theme.color.brand, fontSize: 13, fontWeight: '600' },

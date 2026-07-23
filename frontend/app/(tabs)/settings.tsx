@@ -53,16 +53,16 @@ export default function Settings() {
 
           <View style={styles.divider} />
 
-          <View style={styles.groupRow}>
+          <Pressable testID="sms-sync-btn" style={styles.groupRow} onPress={() => router.push('/sms-sync')}>
             <View style={[styles.rowIcon, { backgroundColor: '#EFF0EC' }]}>
               <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.color.onSurfaceSecondary} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>Auto-read SMS</Text>
-              <Text style={styles.rowSub}>Available after installing the APK build</Text>
+              <Text style={styles.rowSub}>Sync bank SMS from your phone</Text>
             </View>
-            <View style={styles.pillMuted}><Text style={styles.pillMutedText}>Soon</Text></View>
-          </View>
+            <View style={styles.pillMuted}><Text style={styles.pillMutedText}>APK only</Text></View>
+          </Pressable>
 
           <View style={styles.divider} />
 
@@ -76,6 +76,20 @@ export default function Settings() {
             </View>
             <View style={styles.pillMuted}><Text style={styles.pillMutedText}>Soon</Text></View>
           </View>
+        </View>
+
+        <Text style={styles.sectionLabel}>SPENDING</Text>
+        <View style={styles.group}>
+          <Pressable testID="budgets-nav" style={styles.groupRow} onPress={() => router.push('/budgets')}>
+            <View style={[styles.rowIcon, { backgroundColor: theme.color.brandTertiary }]}>
+              <Ionicons name="pie-chart-outline" size={18} color={theme.color.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>Budgets & alerts</Text>
+              <Text style={styles.rowSub}>Set monthly caps per category</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.color.onSurfaceTertiary} />
+          </Pressable>
         </View>
 
         <Text style={styles.sectionLabel}>ABOUT</Text>
