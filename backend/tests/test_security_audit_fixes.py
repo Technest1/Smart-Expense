@@ -3,9 +3,8 @@ Security audit fix verification tests.
 
 Covers:
 - SEC-001: ingest batch cap (413 on >50), text-per-item cap (4000 chars truncated),
-  AI quota constant/behaviour (no AI triggered on regex-parsable happy path)
+  regex-only parsing happy path
 - SEC-002: CORS response must NOT set Access-Control-Allow-Credentials: true
-- SEC-003: AI parser output validation code path (grep-based static check on server.py)
 - HARDENING: GET /api/transactions?limit=99999 clamped to MAX_TXN_LIST_LIMIT=500
 - REGRESSION: seed-sample → dashboard → transactions list → PATCH category flow
 - REGRESSION: sprint-2 budgets + analytics endpoints still function
@@ -19,7 +18,7 @@ import pytest
 import requests
 
 BASE_URL = os.environ["EXPO_PUBLIC_BACKEND_URL"].rstrip("/")
-SERVER_PY = Path("/app/backend/server.py").read_text()
+SERVER_PY = (Path(__file__).parent.parent / "server.py").read_text()
 
 
 # ---------------------------------------------------------------
@@ -82,19 +81,10 @@ class TestIngestTextCap:
 
 
 # ---------------------------------------------------------------
-# SEC-001: AI quota constant + no AI calls on regex-happy-path
+# SEC-001: regex-only parsing happy path (no external AI dependency)
 # ---------------------------------------------------------------
-class TestAIQuotaGating:
-    def test_constant_and_code_path_exist(self):
-        assert "AI_CALLS_PER_HOUR_PER_USER = 60" in SERVER_PY, \
-            "AI_CALLS_PER_HOUR_PER_USER=60 constant missing"
-        assert "_ai_quota_check" in SERVER_PY, "_ai_quota_check helper missing"
-        # Called in ai_parse
-        assert re.search(r"if\s+user_id\s+and\s+not\s+_ai_quota_check\(user_id\)", SERVER_PY), \
-            "ai_parse should gate on _ai_quota_check(user_id)"
-
-    def test_happy_path_ingest_does_not_bump_ai_calls(self, auth_headers, clean_txns):
-        # A regex-parseable HDFC debit SMS should NOT hit AI at all
+class TestRegexParseHappyPath:
+    def test_happy_path_ingest_parses_via_regex(self, auth_headers, clean_txns):
         payload = {"items": [
             {"source": "sms",
              "text": "HDFC Bank: Rs.499.00 debited from a/c XX1234 on 12-05-25 to "
@@ -138,29 +128,6 @@ class TestCORSNoCredentials:
     def test_code_uses_allow_credentials_false(self):
         assert re.search(r"allow_credentials\s*=\s*False", SERVER_PY), \
             "CORSMiddleware should be configured with allow_credentials=False"
-
-
-# ---------------------------------------------------------------
-# SEC-003: AI parser output validation (static code inspection)
-# ---------------------------------------------------------------
-class TestAIOutputValidation:
-    def test_allowed_categories_set_defined(self):
-        assert "ALLOWED_CATEGORIES" in SERVER_PY, "ALLOWED_CATEGORIES missing"
-        # Contains required categories
-        required = [
-            "Food & Dining", "Transport", "Shopping", "Groceries",
-            "Entertainment", "Bills & Utilities", "Health",
-            "Transfers", "Uncategorized",
-        ]
-        for cat in required:
-            assert cat in SERVER_PY, f"ALLOWED_CATEGORIES missing category: {cat}"
-
-    def test_ai_parse_validates_direction_and_category(self):
-        # Look at the ai_parse function body: it should fall back to 'debit' and 'Uncategorized'
-        assert re.search(r"direction\s*not\s*in\s*\(\s*['\"]debit['\"]\s*,\s*['\"]credit['\"]\s*\)", SERVER_PY), \
-            "ai_parse should validate direction against {'debit','credit'}"
-        assert re.search(r"category\s*not\s*in\s*ALLOWED_CATEGORIES", SERVER_PY), \
-            "ai_parse should validate category against ALLOWED_CATEGORIES"
 
 
 # ---------------------------------------------------------------

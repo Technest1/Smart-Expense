@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.smartexpenses.o34x7b"
+      "bundleIdentifier": "com.smartexpense.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -18,7 +18,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.emergent.smartexpenses.o34x7b",
+      "package": "com.smartexpense.app",
       "permissions": [
         "android.permission.READ_SMS",
         "android.permission.RECEIVE_SMS"

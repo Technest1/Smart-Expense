@@ -4,11 +4,11 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import re
-import json
 import logging
 import uuid
-import httpx
 from pathlib import Path
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_auth_requests
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime, timezone, timedelta
@@ -21,32 +21,13 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# ---------- LLM (Emergent Integrations) ----------
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+# ---------- Auth ----------
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 # ---------- Security limits ----------
 MAX_INGEST_ITEMS = 50
 MAX_TXN_LIST_LIMIT = 500
 MAX_INGEST_TEXT_CHARS = 4000
-AI_CALLS_PER_HOUR_PER_USER = 60
-_ai_call_log: dict = {}  # user_id -> list[timestamp]
-
-def _ai_quota_check(user_id: str) -> bool:
-    """Return True if user is under quota; also records the call."""
-    now = datetime.now(timezone.utc)
-    window_start = now - timedelta(hours=1)
-    log = [t for t in _ai_call_log.get(user_id, []) if t >= window_start]
-    if len(log) >= AI_CALLS_PER_HOUR_PER_USER:
-        _ai_call_log[user_id] = log
-        return False
-    log.append(now)
-    _ai_call_log[user_id] = log
-    return True
-
-ALLOWED_CATEGORIES = {
-    "Food & Dining", "Transport", "Shopping", "Groceries", "Entertainment",
-    "Bills & Utilities", "Health", "Transfers", "Uncategorized",
-}
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -90,8 +71,8 @@ class IngestItem(BaseModel):
 class IngestRequest(BaseModel):
     items: List[IngestItem]
 
-class SessionCreateRequest(BaseModel):
-    session_token: str
+class GoogleAuthRequest(BaseModel):
+    id_token: str
 
 class TxnUpdateRequest(BaseModel):
     category: Optional[str] = None
@@ -128,27 +109,24 @@ async def get_current_user(authorization: Optional[str] = Header(None)) -> User:
     return User(**user_doc)
 
 # ================= AUTH ENDPOINTS =================
-@api_router.post("/auth/session")
-async def create_session(payload: SessionCreateRequest):
-    """Exchange Emergent session_token for a verified user + backend session."""
-    async with httpx.AsyncClient(timeout=15.0) as http:
-        try:
-            resp = await http.get(
-                "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-                headers={"X-Session-ID": payload.session_token},
-            )
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=f"Auth verify failed: {e}")
-    if resp.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid session token")
-    data = resp.json()
-    email = data.get("email")
-    name = data.get("name") or email
-    picture = data.get("picture")
-    verified_token = data.get("session_token") or payload.session_token
+@api_router.post("/auth/google")
+async def auth_google(payload: GoogleAuthRequest):
+    """Verify a Google-issued id_token and mint our own backend session."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="GOOGLE_CLIENT_ID not configured")
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            payload.id_token, google_auth_requests.Request(), GOOGLE_CLIENT_ID
+        )
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Google id_token: {e}")
+
+    email = claims.get("email")
+    name = claims.get("name") or email
+    picture = claims.get("picture")
 
     if not email:
-        raise HTTPException(status_code=401, detail="Auth response missing email")
+        raise HTTPException(status_code=401, detail="Google token missing email")
 
     existing = await db.users.find_one({"email": email}, {"_id": 0})
     if existing:
@@ -159,17 +137,18 @@ async def create_session(payload: SessionCreateRequest):
         user_doc = User(user_id=user_id, email=email, name=name, picture=picture).dict()
         await db.users.insert_one(user_doc)
 
+    session_token = uuid.uuid4().hex
     session_doc = {
-        "session_token": verified_token,
+        "session_token": session_token,
         "user_id": user_id,
         "created_at": datetime.now(timezone.utc),
         "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
     }
     await db.user_sessions.update_one(
-        {"session_token": verified_token}, {"$set": session_doc}, upsert=True
+        {"session_token": session_token}, {"$set": session_doc}, upsert=True
     )
     user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    return {"session_token": verified_token, "user": user_doc}
+    return {"session_token": session_token, "user": user_doc}
 
 @api_router.get("/auth/me")
 async def auth_me(authorization: Optional[str] = Header(None)):
@@ -219,7 +198,7 @@ MERCHANT_RE = re.compile(
 MERCHANT_EMAIL_RES = [
     re.compile(r"payment (?:received|made) for\s+([A-Za-z][A-Za-z0-9 &.'\-]{2,40}?)(?:\s+subscription|\.|,)", re.IGNORECASE),
     re.compile(r"your\s+([A-Za-z][A-Za-z0-9]{2,20})\s+order", re.IGNORECASE),
-    re.compile(r"(?:from|by)\s+([A-Z][A-Z0-9 &.'\-]{2,40}?)(?=\s+(?:on|ref|for|\.|,|$))"),
+    re.compile(r"(?:from|by)\s+([A-Z][A-Za-z0-9 &.'\-]{2,40}?)(?:\s+(?:on|ref|for|upi|txn|via)\b|[.,]|$)"),
 ]
 ACCOUNT_RE = re.compile(r"a/?c\s*(?:no\.?)?\s*[xX*]*([0-9]{2,6})", re.IGNORECASE)
 DATE_RE = re.compile(r"\b(\d{1,2}[-/](?:\d{1,2}|[A-Za-z]{3})[-/]\d{2,4})\b")
@@ -286,78 +265,6 @@ def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]
         "parser": "regex",
     }
 
-async def ai_parse(text: str, received_at: datetime, user_id: Optional[str] = None) -> Optional[dict]:
-    """Fallback AI parser using Emergent LLM (Claude Sonnet)."""
-    if not EMERGENT_LLM_KEY:
-        return None
-    if user_id and not _ai_quota_check(user_id):
-        logger.warning(f"AI quota exceeded for {user_id}")
-        return None
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage
-    except Exception as e:
-        logger.warning(f"emergentintegrations unavailable: {e}")
-        return None
-
-    system = (
-        "You are a financial SMS/email parser. Extract structured JSON only. "
-        "Return ONLY valid JSON with keys: amount(number), direction('debit'|'credit'), "
-        "merchant(string), ref_id(string|null), account(string|null), "
-        "category(string, one of: Food & Dining, Transport, Shopping, Groceries, "
-        "Entertainment, Bills & Utilities, Health, Transfers, Uncategorized). "
-        "If the text does NOT describe a real money transaction, return {\"skip\": true}. "
-        "No markdown, no commentary."
-    )
-    try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"parse-{uuid.uuid4().hex[:8]}",
-            system_message=system,
-        ).with_model("anthropic", "claude-sonnet-4-6")
-        resp = await chat.send_message(UserMessage(text=text[:2000]))
-        raw = resp if isinstance(resp, str) else getattr(resp, "content", str(resp))
-        # Try to isolate JSON
-        s = raw.strip()
-        if s.startswith("```"):
-            s = s.strip("`")
-            if s.lower().startswith("json"):
-                s = s[4:]
-        js = json.loads(s)
-        if js.get("skip"):
-            return None
-        amount = float(js["amount"])
-        if amount <= 0:
-            return None
-        # SEC-003: validate AI output against allowlists
-        direction = js.get("direction", "debit")
-        if direction not in ("debit", "credit"):
-            direction = "debit"
-        category = js.get("category") or "Uncategorized"
-        if category not in ALLOWED_CATEGORIES:
-            category = "Uncategorized"
-        merchant = (js.get("merchant") or "Unknown")
-        if not isinstance(merchant, str):
-            merchant = "Unknown"
-        ref_id = js.get("ref_id")
-        if ref_id is not None and not isinstance(ref_id, str):
-            ref_id = None
-        account = js.get("account")
-        if account is not None and not isinstance(account, str):
-            account = None
-        return {
-            "amount": amount,
-            "direction": direction,
-            "merchant": merchant[:60],
-            "ref_id": ref_id[:64] if ref_id else None,
-            "account": account[:32] if account else None,
-            "txn_date": received_at,
-            "category": category,
-            "parser": "ai",
-        }
-    except Exception as e:
-        logger.warning(f"AI parse failed: {e}")
-        return None
-
 def _merchant_key(m: str) -> str:
     """Normalize merchant to first significant token for fuzzy dedup."""
     tokens = re.split(r"[\s.,\-_]+", (m or "").lower().strip())
@@ -411,8 +318,6 @@ async def ingest_messages(payload: IngestRequest, authorization: Optional[str] =
         if received_at.tzinfo is None:
             received_at = received_at.replace(tzinfo=timezone.utc)
         parsed = regex_parse(text, item.source, received_at)
-        if not parsed:
-            parsed = await ai_parse(text, received_at, user_id=user.user_id)
         if not parsed:
             skipped += 1
             results.append({"status": "skipped", "reason": "no_transaction_found"})

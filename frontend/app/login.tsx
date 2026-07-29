@@ -1,52 +1,121 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform, Image, Dimensions } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image, Dimensions, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
+import * as Google from 'expo-auth-session/providers/google';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { theme } from '@/src/theme';
 
+WebBrowser.maybeCompleteAuthSession();
+
 const { height } = Dimensions.get('window');
 
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+// Web: a popup-based flow is too fragile (browsers block window.open() unless it
+// fires perfectly synchronously on the click, which expo-auth-session's internal
+// async prep breaks), so we do Google's own full-page redirect instead and pick
+// the id_token back up from the URL fragment on return.
+function randomNonce(): string {
+  const bytes = new Uint8Array(16);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function buildGoogleWebRedirectUrl(): string {
+  // Land back on /login itself, not the root: the root route immediately
+  // client-side-redirects unauthenticated users to /login, which rewrites the
+  // URL and wipes the #id_token hash before this screen ever gets to read it.
+  const redirectUri = window.location.origin + '/login';
+  const params = new URLSearchParams({
+    client_id: GOOGLE_WEB_CLIENT_ID || '',
+    redirect_uri: redirectUri,
+    response_type: 'id_token',
+    scope: 'openid email profile',
+    prompt: 'select_account',
+    nonce: randomNonce(),
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
 export default function LoginScreen() {
-  const { signInWithSessionToken } = useAuth();
+  const { signInWithGoogleIdToken } = useAuth();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // expo-auth-session throws synchronously on web if webClientId is undefined,
+  // so fall back to a placeholder until it's configured — the login() handler
+  // below checks GOOGLE_WEB_CLIENT_ID before ever calling promptAsync (native only).
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: GOOGLE_WEB_CLIENT_ID || 'not-configured',
+  });
+
+  // Web: pick up the id_token from the redirect back, once.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const hash = window.location.hash;
+    if (!hash || !hash.includes('id_token=')) return;
+    const params = new URLSearchParams(hash.slice(1));
+    const idToken = params.get('id_token');
+    const oauthError = params.get('error');
+    window.history.replaceState(null, '', window.location.pathname);
+    if (oauthError) {
+      setErr(oauthError);
+      return;
+    }
+    if (idToken) {
+      setBusy(true);
+      signInWithGoogleIdToken(idToken)
+        .catch((e: any) => setErr(e?.message || 'Login failed'))
+        .finally(() => setBusy(false));
+    }
+  }, []);
+
+  // Native (iOS/Android): expo-auth-session's in-app browser modal isn't subject
+  // to popup blocking, so the normal promptAsync() flow is fine here.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (response?.type === 'success') {
+      const idToken = response.authentication?.idToken ?? response.params?.id_token;
+      if (!idToken) {
+        setErr('Login failed: no id token from Google');
+        setBusy(false);
+        return;
+      }
+      (async () => {
+        try {
+          await signInWithGoogleIdToken(idToken);
+        } catch (e: any) {
+          setErr(e?.message || 'Login failed');
+        } finally {
+          setBusy(false);
+        }
+      })();
+    } else if (response?.type === 'error') {
+      setErr(response.error?.message || 'Login failed');
+      setBusy(false);
+    } else if (response?.type === 'dismiss' || response?.type === 'cancel') {
+      setBusy(false);
+    }
+  }, [response]);
+
   const login = async () => {
+    if (!GOOGLE_WEB_CLIENT_ID) {
+      setErr('Google sign-in is not configured yet (missing EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID).');
+      return;
+    }
     setErr(null);
     setBusy(true);
+    if (Platform.OS === 'web') {
+      window.location.href = buildGoogleWebRedirectUrl();
+      return;
+    }
     try {
-      const redirectUrl =
-        Platform.OS === 'web'
-          ? window.location.origin + '/'
-          : Linking.createURL('');
-      const authUrl = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-
-      if (Platform.OS === 'web') {
-        window.location.href = authUrl;
-        return;
-      }
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUrl);
-      if (result.type !== 'success' || !result.url) {
-        setBusy(false);
-        return;
-      }
-      const url = result.url;
-      const frag = url.split('#')[1] || url.split('?')[1] || '';
-      const params = new URLSearchParams(frag);
-      const sid = params.get('session_id');
-      if (!sid) {
-        setErr('Login failed: no session id');
-        setBusy(false);
-        return;
-      }
-      await signInWithSessionToken(sid);
+      await promptAsync();
     } catch (e: any) {
       setErr(e?.message || 'Login failed');
-    } finally {
       setBusy(false);
     }
   };

@@ -5,7 +5,7 @@ type User = { user_id: string; email: string; name: string; picture?: string | n
 type AuthState = {
   user: User | null;
   loading: boolean;
-  signInWithSessionToken: (t: string) => Promise<User>;
+  signInWithGoogleIdToken: (t: string) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -34,10 +34,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [refresh]);
 
-  const signInWithSessionToken = async (session_token: string) => {
-    const data = await apiFetch<{ session_token: string; user: User }>('/auth/session', {
+  const signInWithGoogleIdToken = async (id_token: string) => {
+    const data = await apiFetch<{ session_token: string; user: User }>('/auth/google', {
       method: 'POST',
-      body: JSON.stringify({ session_token }),
+      body: JSON.stringify({ id_token }),
     });
     await saveToken(data.session_token);
     setUser(data.user);
@@ -51,7 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithSessionToken, signOut, refresh }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogleIdToken, signOut, refresh }}>
       {children}
     </AuthContext.Provider>
   );

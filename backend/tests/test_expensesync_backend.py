@@ -31,10 +31,9 @@ class TestAuth:
         r = api.get(f"{BASE_URL}/api/auth/me", headers={"Authorization": "Bearer nope"})
         assert r.status_code == 401
 
-    def test_session_invalid_token(self, api):
-        r = api.post(f"{BASE_URL}/api/auth/session", json={"session_token": "invalid-emergent-token-xyz"})
-        # Should be 401 (verify failed) or 502 (upstream error). Not 2xx.
-        assert r.status_code in (401, 502)
+    def test_google_auth_invalid_token(self, api):
+        r = api.post(f"{BASE_URL}/api/auth/google", json={"id_token": "invalid-token-xyz"})
+        assert r.status_code == 401
 
     def test_logout_and_reseed(self, api, mongo_db):
         # Use throwaway token so we don't kill the shared one
