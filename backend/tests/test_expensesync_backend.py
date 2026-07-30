@@ -158,6 +158,36 @@ class TestIngestParser:
         assert body["skipped"] == 1
         assert body["saved"] == 0
 
+    def test_failed_payment_notification_skipped(self, api, auth_headers, clean_txns):
+        text = ("Hi, Payment of Rs. 199.0 has failed for your Airtel Mobile 7676229027. "
+                "Any amount, if debited will be refunded to your source account within a day.")
+        r = api.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers,
+                     json={"items": [{"source": "sms", "text": text}]})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["skipped"] == 1
+        assert body["saved"] == 0
+
+    def test_self_labeled_spam_skipped(self, api, auth_headers, clean_txns):
+        text = ("Airtel Warning: SPAM | TradeConfirmation Account:7676229027 Received: Rs.10301 "
+                "Days Position-Dtd:7/14,2026 FA BAL Bal:Rs.31124. Click to view: bit.ly/4vtNxX8?27 TRADFLOW")
+        r = api.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers,
+                     json={"items": [{"source": "sms", "text": text}]})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["skipped"] == 1
+        assert body["saved"] == 0
+
+    def test_past_failed_attempt_that_now_succeeded_not_skipped(self, api, auth_headers, clean_txns):
+        text = ("Rs.500 debited to Merchant XYZ on 12-05-25. Note: previous failed attempt "
+                "succeeded now. Ref 512345678901. -HDFC")
+        r = api.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers,
+                     json={"items": [{"source": "sms", "text": text}]})
+        assert r.status_code == 200
+        body = r.json()
+        assert body["saved"] == 1
+        assert body["skipped"] == 0
+
 
 # ---------------- Deduplication ----------------
 class TestDedup:

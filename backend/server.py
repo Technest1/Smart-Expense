@@ -2,13 +2,18 @@ from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+import base64
+import html as html_module
 import os
 import re
 import logging
 import uuid
+import asyncio
+import httpx
 from pathlib import Path
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
+from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime, timezone, timedelta
@@ -23,6 +28,13 @@ db = client[os.environ['DB_NAME']]
 
 # ---------- Auth ----------
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+
+# ---------- Gmail sync ----------
+TOKEN_ENCRYPTION_KEY = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
+_fernet = Fernet(TOKEN_ENCRYPTION_KEY.encode()) if TOKEN_ENCRYPTION_KEY else None
+GMAIL_SYNC_INTERVAL_SECONDS = int(os.environ.get("GMAIL_SYNC_INTERVAL_SECONDS", "900"))
+GMAIL_FIRST_SYNC_LOOKBACK_DAYS = 90
 
 # ---------- Security limits ----------
 MAX_INGEST_ITEMS = 50
@@ -56,6 +68,7 @@ class Transaction(BaseModel):
     account: Optional[str] = None
     ref_id: Optional[str] = None
     balance_after: Optional[float] = None
+    payment_mode: Optional[str] = None
     raw_text: str = ""
     parser: Literal["regex", "ai", "manual"] = "regex"
     is_duplicate: bool = False
@@ -73,11 +86,20 @@ class IngestRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     id_token: str
+    server_auth_code: Optional[str] = None
 
 class TxnUpdateRequest(BaseModel):
     category: Optional[str] = None
     merchant: Optional[str] = None
     is_duplicate: Optional[bool] = None
+
+class ManualTransactionCreate(BaseModel):
+    amount: float
+    direction: Literal["debit", "credit"] = "debit"
+    merchant: str
+    category: str = "Uncategorized"
+    txn_date: datetime
+    account: Optional[str] = None
 
 class Budget(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -137,6 +159,12 @@ async def auth_google(payload: GoogleAuthRequest):
         user_doc = User(user_id=user_id, email=email, name=name, picture=picture).dict()
         await db.users.insert_one(user_doc)
 
+    if payload.server_auth_code and GOOGLE_CLIENT_SECRET and _fernet:
+        try:
+            await _connect_gmail(user_id, payload.server_auth_code)
+        except Exception as e:
+            logger.warning(f"Gmail connect failed for {user_id}: {e}")
+
     session_token = uuid.uuid4().hex
     session_doc = {
         "session_token": session_token,
@@ -147,8 +175,38 @@ async def auth_google(payload: GoogleAuthRequest):
     await db.user_sessions.update_one(
         {"session_token": session_token}, {"$set": session_doc}, upsert=True
     )
-    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    user_doc = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "gmail_refresh_token_enc": 0, "gmail_connected_at": 0, "gmail_last_sync": 0},
+    )
     return {"session_token": session_token, "user": user_doc}
+
+async def _connect_gmail(user_id: str, server_auth_code: str):
+    """Exchange a native GoogleSignin serverAuthCode for a refresh token and store it encrypted."""
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        resp = await http.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": server_auth_code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "grant_type": "authorization_code",
+            },
+        )
+    if resp.status_code != 200:
+        logger.warning(f"Gmail code exchange failed: {resp.text}")
+        return
+    refresh_token = resp.json().get("refresh_token")
+    if not refresh_token:
+        logger.warning(f"No refresh_token in Gmail token exchange for {user_id}")
+        return
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "gmail_refresh_token_enc": _fernet.encrypt(refresh_token.encode()).decode(),
+            "gmail_connected_at": datetime.now(timezone.utc),
+        }},
+    )
 
 @api_router.get("/auth/me")
 async def auth_me(authorization: Optional[str] = Header(None)):
@@ -173,11 +231,19 @@ CATEGORY_KEYWORDS = {
     "Health": ["pharmacy", "apollo", "medplus", "hospital", "clinic"],
     "Transfers": ["upi", "imps", "neft", "rtgs", "transfer"],
 }
+# Word-boundary matching (not plain substring) — short keywords like "ola" or "vi"
+# would otherwise match inside unrelated words (e.g. "ola" inside CSS's
+# "interpolation-mode", "vi" inside "approving"/"services"), causing real
+# transactions to be miscategorized off boilerplate/junk text instead of merchant.
+CATEGORY_PATTERNS = {
+    cat: [re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in kws]
+    for cat, kws in CATEGORY_KEYWORDS.items()
+}
 
 def categorize(merchant: str, text: str) -> str:
-    hay = f"{merchant} {text}".lower()
-    for cat, kws in CATEGORY_KEYWORDS.items():
-        if any(k in hay for k in kws):
+    hay = f"{merchant} {text}"
+    for cat, patterns in CATEGORY_PATTERNS.items():
+        if any(p.search(hay) for p in patterns):
             return cat
     return "Uncategorized"
 
@@ -185,31 +251,116 @@ AMOUNT_RE = re.compile(r"(?:rs\.?|inr|₹)\s*([0-9,]+(?:\.\d{1,2})?)", re.IGNORE
 DEBIT_RE = re.compile(r"\b(debited|debit|spent|paid|withdrawn|sent|used for|charged to)\b", re.IGNORECASE)
 CREDIT_RE = re.compile(r"\b(credited|credit|received|deposited|refunded)\b", re.IGNORECASE)
 PROMO_RE = re.compile(r"\b(cashback|discount|offer|reward|coupon|t&c\s*apply|apply now|earn up to|get\s+\d+%)\b", re.IGNORECASE)
+# Messages self-labeled as spam, or reporting that a payment did NOT go through
+# (failed/declined/unsuccessful), are not real completed transactions even though
+# they often also match DEBIT_RE/CREDIT_RE (e.g. "if debited will be refunded").
+# "has/have failed" (not bare "failed") is required so a message recounting a past
+# failure that later succeeded — e.g. "previous failed attempt succeeded now" —
+# is left alone.
+FAILED_PAYMENT_RE = re.compile(
+    r"\b(?:has|have)\s+failed\b"
+    r"|\b(?:payment|transaction|txn|transfer)\b.{0,40}?\b(?:declined|unsuccessful)\b"
+    r"|\b(?:declined|unsuccessful)\b.{0,40}?\b(?:payment|transaction|txn|transfer)\b"
+    r"|\bspam\b",
+    re.IGNORECASE,
+)
 REF_RE = re.compile(r"(?:ref(?:no|erence)?[:\s#]*|txn[:\s#]*|upi ref[:\s]*|imps[:\s]*)([A-Z0-9]{6,})", re.IGNORECASE)
-# Prefer "to/at MERCHANT" but skip if next token is a currency marker.
+# An explicit "Merchant: X" label (common in EMI/credit-card notification emails)
+# is a far more reliable signal than the guess-based patterns below — checked first.
+MERCHANT_LABEL_RE = re.compile(r"merchant\s*[:\-]\s*([A-Za-z][A-Za-z0-9 &.'\-]{2,40})", re.IGNORECASE)
+# Prefer "to/at MERCHANT" but skip if next token is a currency marker. Word
+# boundaries on the trigger/terminator keywords matter — without them "to|at|for"
+# and "on|ref|upi|txn|via" match mid-word (e.g. "th-AT was sweet", "by --> one<--
+# of our agents" via the bare "on" inside "one"), producing garbage merchant names.
 MERCHANT_RE = re.compile(
-    r"(?:to|at|towards|for)\s+"
+    r"\b(?:to|at|towards|for)\b\s+"
     r"(?!(?:rs\.?|inr|₹))"
     r"([A-Za-z][A-Za-z0-9 &.'\-]{2,40}?)"
-    r"(?:\s+on|\s+ref|\s+upi|\s+txn|\s+via|\.|,|$)",
+    r"(?:\s+\b(?:on|ref|upi|txn|via)\b|\.|,|$)",
     re.IGNORECASE,
 )
 # Fallback patterns for emails and less structured formats.
 MERCHANT_EMAIL_RES = [
     re.compile(r"payment (?:received|made) for\s+([A-Za-z][A-Za-z0-9 &.'\-]{2,40}?)(?:\s+subscription|\.|,)", re.IGNORECASE),
     re.compile(r"your\s+([A-Za-z][A-Za-z0-9]{2,20})\s+order", re.IGNORECASE),
-    re.compile(r"(?:from|by)\s+([A-Z][A-Za-z0-9 &.'\-]{2,40}?)(?:\s+(?:on|ref|for|upi|txn|via)\b|[.,]|$)"),
+    re.compile(r"\b(?:from|by)\b\s+(?!(?i:rs\.?|inr|₹))([A-Z][A-Za-z0-9 &.'\-]{2,40}?)(?:\s+\b(?:on|ref|for|upi|txn|via)\b|[.,]|$)"),
 ]
-ACCOUNT_RE = re.compile(r"a/?c\s*(?:no\.?)?\s*[xX*]*([0-9]{2,6})", re.IGNORECASE)
+# Matches both compact SMS-style "a/c XX1234" and spelled-out email-style
+# "Account No. 15XXXXXX9815" — the greedy [xX*\d]* lets the engine backtrack
+# onto the LAST 4 digits before a word boundary, which is the meaningful
+# (unmasked) suffix regardless of where the X's fall in the source text.
+ACCOUNT_RE = re.compile(r"(?:a/?c(?:count)?|account)\.?\s*(?:no\.?)?\s*[:.]?\s*[xX*\d]*([0-9]{4})\b", re.IGNORECASE)
 DATE_RE = re.compile(r"\b(\d{1,2}[-/](?:\d{1,2}|[A-Za-z]{3})[-/]\d{2,4})\b")
+# Currency marker is required (not optional) here so the flexible gap before it
+# — needed for phrasing like "balance available in your Account is INR X" —
+# can't accidentally latch onto an unrelated number further down the message.
 BALANCE_RE = re.compile(
-    r"(?:avl(?:bl)?\.?\s*bal(?:ance)?|available\s*bal(?:ance)?|bal(?:ance)?)"
-    r"[:\s]*(?:inr|rs\.?|₹)?\s*([0-9]{1,3}(?:[,][0-9]{2,3})*(?:\.\d{1,2})?)",
+    r"(?:avl(?:bl)?\.?\s*bal(?:ance)?|available\s*bal(?:ance)?|bal(?:ance)?\s*available|bal(?:ance)?)"
+    r"[^0-9]{0,40}?"
+    r"(?:inr|rs\.?|₹)\s*([0-9]{1,3}(?:[,][0-9]{2,3})*(?:\.\d{1,2})?)",
     re.IGNORECASE,
 )
+# Indian bank SMS convention: sender name trails the message after a dash, e.g.
+# "...Avl Bal INR 299.47 -StanChart" or "...-Bank of Baroda".
+BANK_NAME_RE = re.compile(r"-\s*([A-Z][A-Za-z&.\s]{1,30})\s*$")
+# Email convention: the bank's display name often leads the body before any
+# CSS/preheader junk, e.g. "IndusInd Bank body { margin: 0; ... }" or
+# "ICICI Bank Online Dear Customer, ...".
+BANK_NAME_LEADING_RE = re.compile(r"^\s*([A-Z][A-Za-z]+(?:\s+[A-Za-z][A-Za-z]+){0,2}\s+Bank)\b")
+# Fallback for email bodies where the leading junk (BOM/CRLF preheader) hides
+# the bank name — it usually still appears inline, e.g. "Your IndusInd Bank
+# Account No. ... has been Debited".
+BANK_NAME_INLINE_RE = re.compile(r"\b[Yy]our\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2}\s+Bank)\s+(?:Account|A/?c)\b")
+
+def extract_bank_name(text: str) -> Optional[str]:
+    stripped = (text or "").strip()
+    m = BANK_NAME_RE.search(stripped)
+    if m:
+        return m.group(1).strip()
+    m = BANK_NAME_LEADING_RE.match(stripped)
+    if m:
+        return m.group(1).strip()
+    m = BANK_NAME_INLINE_RE.search(stripped)
+    if m:
+        return m.group(1).strip()
+    return None
+
+# Rejects merchant-regex matches that are grammatically real but not a merchant
+# name — e.g. "for banking with us" (a courtesy closing line, not "banking with us"
+# the business). Checked against every word in the candidate, not just the first.
+MERCHANT_STOP_WORDS = {
+    "card", "account", "acct", "a/c", "you", "your", "the", "us", "banking",
+    "welcome", "thank", "thanks", "team", "customer", "dear", "service", "services",
+    "a", "transaction", "employee", "purchase",
+}
+
+def _looks_like_merchant(candidate: str) -> bool:
+    words = [w.lower() for w in candidate.split()]
+    if not words:
+        return False
+    return not any(w in MERCHANT_STOP_WORDS for w in words)
+
+# Payment-mode classification: used only as a *display* fallback when no real
+# merchant name could be extracted — never overwrites a genuine merchant, and
+# never stored in place of merchant (keeps dedup keyed on the real value).
+PAYMENT_MODE_PATTERNS = [
+    ("upi", re.compile(r"\bupi\b", re.IGNORECASE)),
+    ("atm", re.compile(r"\batm\b|cash\s*withdrawal", re.IGNORECASE)),
+    ("neft", re.compile(r"\bneft\b", re.IGNORECASE)),
+    ("imps", re.compile(r"\bimps\b", re.IGNORECASE)),
+    ("rtgs", re.compile(r"\brtgs\b", re.IGNORECASE)),
+    ("cheque", re.compile(r"\bcheque\b|\bchq\b", re.IGNORECASE)),
+    ("card", re.compile(r"\bcard\b|\bpos\b", re.IGNORECASE)),
+]
+
+def detect_payment_mode(text: str) -> str:
+    for mode, pattern in PAYMENT_MODE_PATTERNS:
+        if pattern.search(text):
+            return mode
+    return "other"
 
 def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]:
-    if PROMO_RE.search(text):
+    if PROMO_RE.search(text) or FAILED_PAYMENT_RE.search(text):
         return None
     m = AMOUNT_RE.search(text)
     if not m:
@@ -224,18 +375,25 @@ def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]
     direction = "credit" if (credit and not debit) else "debit"
 
     merchant = "Unknown"
-    mm = MERCHANT_RE.search(text)
-    if mm:
-        candidate = mm.group(1).strip(" .,-")
-        first_word = candidate.split()[0].lower() if candidate.split() else ""
-        if first_word not in {"card", "account", "acct", "a/c", "you", "your", "the"}:
+    lm = MERCHANT_LABEL_RE.search(text)
+    if lm:
+        candidate = lm.group(1).strip(" .,-")
+        if _looks_like_merchant(candidate):
             merchant = candidate
+    if merchant == "Unknown":
+        mm = MERCHANT_RE.search(text)
+        if mm:
+            candidate = mm.group(1).strip(" .,-")
+            if _looks_like_merchant(candidate):
+                merchant = candidate
     if merchant == "Unknown" or not merchant:
         for pat in MERCHANT_EMAIL_RES:
             fm = pat.search(text)
             if fm:
-                merchant = fm.group(1).strip(" .,-")
-                break
+                candidate = fm.group(1).strip(" .,-")
+                if _looks_like_merchant(candidate):
+                    merchant = candidate
+                    break
     ref = None
     rm = REF_RE.search(text)
     if rm:
@@ -262,6 +420,7 @@ def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]
         "balance_after": balance_after,
         "txn_date": received_at,
         "category": categorize(merchant, text),
+        "payment_mode": detect_payment_mode(text),
         "parser": "regex",
     }
 
@@ -298,6 +457,38 @@ async def is_duplicate(user_id: str, parsed: dict) -> Optional[str]:
     return None
 
 # ================= INGEST =================
+async def ingest_one_item(user_id: str, source: str, text: str, received_at: datetime) -> dict:
+    """Parse + dedup + save a single message. Shared by the HTTP ingest endpoint and the Gmail sync job."""
+    text = (text or "")[:MAX_INGEST_TEXT_CHARS]
+    if received_at.tzinfo is None:
+        received_at = received_at.replace(tzinfo=timezone.utc)
+    parsed = regex_parse(text, source, received_at)
+    if not parsed:
+        return {"status": "skipped", "reason": "no_transaction_found"}
+
+    dup_of = await is_duplicate(user_id, parsed)
+    txn = Transaction(
+        user_id=user_id,
+        amount=parsed["amount"],
+        direction=parsed["direction"],
+        merchant=parsed["merchant"],
+        category=parsed["category"],
+        txn_date=parsed["txn_date"],
+        source=source,
+        account=parsed.get("account"),
+        ref_id=parsed.get("ref_id"),
+        balance_after=parsed.get("balance_after"),
+        payment_mode=parsed.get("payment_mode"),
+        raw_text=text,
+        parser=parsed["parser"],
+        is_duplicate=bool(dup_of),
+        duplicate_of=dup_of,
+    )
+    await db.transactions.insert_one(txn.dict())
+    if dup_of:
+        return {"status": "duplicate", "id": txn.id, "duplicate_of": dup_of}
+    return {"status": "saved", "id": txn.id}
+
 @api_router.post("/messages/ingest")
 async def ingest_messages(payload: IngestRequest, authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
@@ -312,41 +503,15 @@ async def ingest_messages(payload: IngestRequest, authorization: Optional[str] =
     skipped = 0
     results = []
     for item in payload.items:
-        # Cap individual text size to prevent giant payloads
-        text = (item.text or "")[:MAX_INGEST_TEXT_CHARS]
         received_at = item.received_at or datetime.now(timezone.utc)
-        if received_at.tzinfo is None:
-            received_at = received_at.replace(tzinfo=timezone.utc)
-        parsed = regex_parse(text, item.source, received_at)
-        if not parsed:
-            skipped += 1
-            results.append({"status": "skipped", "reason": "no_transaction_found"})
-            continue
-
-        dup_of = await is_duplicate(user.user_id, parsed)
-        txn = Transaction(
-            user_id=user.user_id,
-            amount=parsed["amount"],
-            direction=parsed["direction"],
-            merchant=parsed["merchant"],
-            category=parsed["category"],
-            txn_date=parsed["txn_date"],
-            source=item.source,
-            account=parsed.get("account"),
-            ref_id=parsed.get("ref_id"),
-            balance_after=parsed.get("balance_after"),
-            raw_text=text,
-            parser=parsed["parser"],
-            is_duplicate=bool(dup_of),
-            duplicate_of=dup_of,
-        )
-        await db.transactions.insert_one(txn.dict())
-        if dup_of:
-            duplicates += 1
-            results.append({"status": "duplicate", "id": txn.id, "duplicate_of": dup_of})
-        else:
+        r = await ingest_one_item(user.user_id, item.source, item.text, received_at)
+        results.append(r)
+        if r["status"] == "saved":
             saved += 1
-            results.append({"status": "saved", "id": txn.id})
+        elif r["status"] == "duplicate":
+            duplicates += 1
+        else:
+            skipped += 1
     return {"saved": saved, "duplicates": duplicates, "skipped": skipped, "results": results}
 
 # ================= SEED SAMPLE =================
@@ -399,6 +564,39 @@ async def seed_sample(authorization: Optional[str] = Header(None)):
     return await ingest_messages(IngestRequest(items=items), authorization=authorization)
 
 # ================= TRANSACTIONS =================
+@api_router.post("/transactions")
+async def create_manual_transaction(payload: ManualTransactionCreate, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    merchant = payload.merchant.strip()[:60] or "Unknown"
+    txn_date = payload.txn_date
+    if txn_date.tzinfo is None:
+        txn_date = txn_date.replace(tzinfo=timezone.utc)
+
+    dup_of = await is_duplicate(user.user_id, {
+        "amount": payload.amount, "direction": payload.direction,
+        "merchant": merchant, "txn_date": txn_date,
+    })
+    txn = Transaction(
+        user_id=user.user_id,
+        amount=payload.amount,
+        direction=payload.direction,
+        merchant=merchant,
+        category=payload.category,
+        txn_date=txn_date,
+        source="manual",
+        account=payload.account or None,
+        raw_text=f"Manually added: {merchant}",
+        parser="manual",
+        is_duplicate=bool(dup_of),
+        duplicate_of=dup_of,
+    )
+    await db.transactions.insert_one(txn.dict())
+    doc = txn.dict()
+    doc.pop("_id", None)
+    return doc
+
 @api_router.get("/transactions")
 async def list_transactions(
     authorization: Optional[str] = Header(None),
@@ -743,7 +941,7 @@ async def account_balances(authorization: Optional[str] = Header(None)):
     txns = await db.transactions.find(
         {"user_id": user.user_id, "account": {"$ne": None},
          "balance_after": {"$ne": None}, "is_duplicate": False},
-        {"_id": 0, "account": 1, "balance_after": 1, "txn_date": 1},
+        {"_id": 0, "account": 1, "balance_after": 1, "txn_date": 1, "raw_text": 1},
     ).sort("txn_date", -1).to_list(2000)
 
     latest: dict = {}
@@ -755,10 +953,168 @@ async def account_balances(authorization: Optional[str] = Header(None)):
             "account": acc,
             "balance": round(t["balance_after"], 2),
             "as_of": t["txn_date"].isoformat() if hasattr(t["txn_date"], "isoformat") else t["txn_date"],
+            "bank": extract_bank_name(t.get("raw_text", "")),
         }
     items = sorted(latest.values(), key=lambda x: -x["balance"])
     total = round(sum(x["balance"] for x in items), 2)
     return {"items": items, "total": total}
+
+# ================= GMAIL SYNC =================
+def _strip_html(raw: str) -> str:
+    text = re.sub(r"<(style|script)\b[^>]*>.*?</\1>", " ", raw, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html_module.unescape(text)
+    return re.sub(r"\s+", " ", text).strip()
+
+def _b64_decode(data: str) -> str:
+    padded = data + "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(padded).decode("utf-8", errors="ignore")
+
+def _extract_email_body(payload: dict) -> str:
+    """Walk a Gmail message payload for a text/plain part, falling back to
+    text/html stripped of tags (rather than pulling in a new HTML-parsing dependency)."""
+    def walk(part, mime_wanted):
+        if part.get("mimeType") == mime_wanted:
+            data = part.get("body", {}).get("data")
+            if data:
+                return _b64_decode(data)
+        for sub in part.get("parts", []) or []:
+            found = walk(sub, mime_wanted)
+            if found:
+                return found
+        return None
+
+    return walk(payload, "text/plain") or _strip_html(walk(payload, "text/html") or "")
+
+async def _gmail_access_token(refresh_token: str) -> Optional[str]:
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        resp = await http.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "refresh_token": refresh_token,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "grant_type": "refresh_token",
+            },
+        )
+    if resp.status_code != 200:
+        logger.warning(f"Gmail token refresh failed: {resp.text}")
+        return None
+    return resp.json().get("access_token")
+
+GMAIL_QUERY_TERMS = "(debited OR credited OR payment OR statement OR transaction OR invoice OR receipt)"
+
+async def _fetch_gmail_messages(access_token: str, since: datetime) -> list:
+    query = f"in:inbox after:{since.strftime('%Y/%m/%d')} {GMAIL_QUERY_TERMS}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    out = []
+    async with httpx.AsyncClient(timeout=20.0) as http:
+        resp = await http.get(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+            headers=headers, params={"q": query, "maxResults": 50},
+        )
+        if resp.status_code != 200:
+            logger.warning(f"Gmail list failed: {resp.text}")
+            return out
+        for m in resp.json().get("messages", []):
+            mresp = await http.get(
+                f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m['id']}",
+                headers=headers, params={"format": "full"},
+            )
+            if mresp.status_code != 200:
+                continue
+            msg = mresp.json()
+            body = _extract_email_body(msg.get("payload", {}))
+            if not body:
+                continue
+            internal_ms = int(msg.get("internalDate") or 0)
+            received_at = (
+                datetime.fromtimestamp(internal_ms / 1000, tz=timezone.utc)
+                if internal_ms else datetime.now(timezone.utc)
+            )
+            out.append({"text": body, "received_at": received_at})
+    return out
+
+async def sync_user_gmail(user_doc: dict) -> dict:
+    empty = {"saved": 0, "duplicates": 0, "skipped": 0}
+    enc = user_doc.get("gmail_refresh_token_enc")
+    if not enc or not _fernet:
+        return empty
+    refresh_token = _fernet.decrypt(enc.encode()).decode()
+    access_token = await _gmail_access_token(refresh_token)
+    if not access_token:
+        return empty
+
+    last_sync = user_doc.get("gmail_last_sync")
+    if last_sync:
+        since = last_sync if last_sync.tzinfo else last_sync.replace(tzinfo=timezone.utc)
+    else:
+        since = datetime.now(timezone.utc) - timedelta(days=GMAIL_FIRST_SYNC_LOOKBACK_DAYS)
+
+    messages = await _fetch_gmail_messages(access_token, since)
+    saved = duplicates = skipped = 0
+    newest = since
+    for m in messages:
+        r = await ingest_one_item(user_doc["user_id"], "email", m["text"], m["received_at"])
+        if r["status"] == "saved":
+            saved += 1
+        elif r["status"] == "duplicate":
+            duplicates += 1
+        else:
+            skipped += 1
+        newest = max(newest, m["received_at"])
+
+    await db.users.update_one({"user_id": user_doc["user_id"]}, {"$set": {"gmail_last_sync": newest}})
+    return {"saved": saved, "duplicates": duplicates, "skipped": skipped}
+
+async def gmail_sync_loop():
+    """Periodic backend polling — the closest thing to 'automatic' Gmail sync
+    without a publicly reachable webhook for Gmail push notifications. Runs only
+    while this backend process is alive, not an always-on cloud service."""
+    while True:
+        await asyncio.sleep(GMAIL_SYNC_INTERVAL_SECONDS)
+        try:
+            cursor = db.users.find({"gmail_refresh_token_enc": {"$ne": None}})
+            async for u in cursor:
+                try:
+                    result = await sync_user_gmail(u)
+                    if any(result.values()):
+                        logger.info(f"Gmail auto-sync for {u['user_id']}: {result}")
+                except Exception as e:
+                    logger.warning(f"Gmail auto-sync failed for {u.get('user_id')}: {e}")
+        except Exception as e:
+            logger.warning(f"Gmail sync loop error: {e}")
+
+@api_router.get("/gmail/status")
+async def gmail_status(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.users.find_one(
+        {"user_id": user.user_id},
+        {"_id": 0, "gmail_refresh_token_enc": 1, "gmail_connected_at": 1, "gmail_last_sync": 1},
+    )
+    connected = bool(doc and doc.get("gmail_refresh_token_enc"))
+    return {
+        "connected": connected,
+        "connected_at": doc["gmail_connected_at"].isoformat() if connected and doc.get("gmail_connected_at") else None,
+        "last_sync": doc["gmail_last_sync"].isoformat() if connected and doc.get("gmail_last_sync") else None,
+    }
+
+@api_router.post("/gmail/sync-now")
+async def gmail_sync_now(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    doc = await db.users.find_one({"user_id": user.user_id})
+    if not doc or not doc.get("gmail_refresh_token_enc"):
+        raise HTTPException(status_code=400, detail="Gmail not connected")
+    return await sync_user_gmail(doc)
+
+@api_router.post("/gmail/disconnect")
+async def gmail_disconnect(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    await db.users.update_one(
+        {"user_id": user.user_id},
+        {"$unset": {"gmail_refresh_token_enc": "", "gmail_connected_at": "", "gmail_last_sync": ""}},
+    )
+    return {"ok": True}
 
 # ================= HEALTH =================
 @api_router.get("/")
@@ -780,6 +1136,7 @@ async def startup():
     await db.transactions.create_index([("user_id", 1), ("ref_id", 1)])
     await db.budgets.create_index([("user_id", 1), ("category", 1)], unique=True)
     logger.info("Indexes ready.")
+    asyncio.create_task(gmail_sync_loop())
 
 app.include_router(api_router)
 
