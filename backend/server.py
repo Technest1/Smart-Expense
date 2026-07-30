@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
+from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -13,6 +14,7 @@ import httpx
 from pathlib import Path
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
+from privacy_policy import PRIVACY_POLICY_HTML
 from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
@@ -1120,6 +1122,12 @@ async def gmail_disconnect(authorization: Optional[str] = Header(None)):
 @api_router.get("/")
 async def root():
     return {"message": "ExpenseSync API", "ok": True}
+
+# Served at the app root (not under /api) since this is the URL that goes into the
+# Play Console listing and Google OAuth consent screen configuration, not an API client.
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    return PRIVACY_POLICY_HTML
 
 # ---------- STARTUP ----------
 @app.on_event("startup")
