@@ -1,18 +1,32 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image, Dimensions, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
+import { GoogleSignin, isSuccessResponse } from '@react-native-google-signin/google-signin';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { theme } from '@/src/theme';
 
-WebBrowser.maybeCompleteAuthSession();
-
 const { height } = Dimensions.get('window');
 
 const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+// Native (iOS/Android): Google's own Sign-In SDK (Credential Manager under the hood)
+// instead of a browser-redirect OAuth flow — the redirect approach hit a real conflict
+// between expo-router's global deep-link handling and expo-auth-session's own redirect
+// listener on Android (the OAuth code came back correctly but the sign-in never
+// completed). The SDK matches the app via package name + SHA-1 fingerprint (no
+// redirect URI involved) and still issues an id_token audienced to our web client,
+// which the backend already verifies against GOOGLE_CLIENT_ID.
+// v1 is SMS-only — no offlineAccess/gmail.readonly scope requested here, since that's
+// a Google-restricted scope requiring a separate CASA security assessment before the
+// app can leave testing mode. Gmail sync (backend/server.py's _connect_gmail etc.) is
+// still there for v2; re-add offlineAccess + the scope below to wire it back up.
+if (Platform.OS !== 'web' && GOOGLE_WEB_CLIENT_ID) {
+  GoogleSignin.configure({
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+  });
+}
 
 // Web: a popup-based flow is too fragile (browsers block window.open() unless it
 // fires perfectly synchronously on the click, which expo-auth-session's internal
@@ -45,13 +59,6 @@ export default function LoginScreen() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // expo-auth-session throws synchronously on web if webClientId is undefined,
-  // so fall back to a placeholder until it's configured — the login() handler
-  // below checks GOOGLE_WEB_CLIENT_ID before ever calling promptAsync (native only).
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: GOOGLE_WEB_CLIENT_ID || 'not-configured',
-  });
-
   // Web: pick up the id_token from the redirect back, once.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -73,33 +80,25 @@ export default function LoginScreen() {
     }
   }, []);
 
-  // Native (iOS/Android): expo-auth-session's in-app browser modal isn't subject
-  // to popup blocking, so the normal promptAsync() flow is fine here.
-  useEffect(() => {
-    if (Platform.OS === 'web') return;
-    if (response?.type === 'success') {
-      const idToken = response.authentication?.idToken ?? response.params?.id_token;
-      if (!idToken) {
-        setErr('Login failed: no id token from Google');
-        setBusy(false);
-        return;
-      }
-      (async () => {
-        try {
-          await signInWithGoogleIdToken(idToken);
-        } catch (e: any) {
-          setErr(e?.message || 'Login failed');
-        } finally {
-          setBusy(false);
+  const loginNative = async () => {
+    try {
+      await GoogleSignin.hasPlayServices();
+      const response = await GoogleSignin.signIn();
+      if (isSuccessResponse(response)) {
+        const idToken = response.data.idToken;
+        if (!idToken) {
+          setErr('Login failed: no id token from Google');
+          return;
         }
-      })();
-    } else if (response?.type === 'error') {
-      setErr(response.error?.message || 'Login failed');
-      setBusy(false);
-    } else if (response?.type === 'dismiss' || response?.type === 'cancel') {
+        await signInWithGoogleIdToken(idToken, response.data.serverAuthCode ?? undefined);
+      }
+      // 'cancelled' response: user backed out, nothing to do.
+    } catch (e: any) {
+      setErr(e?.message || 'Login failed');
+    } finally {
       setBusy(false);
     }
-  }, [response]);
+  };
 
   const login = async () => {
     if (!GOOGLE_WEB_CLIENT_ID) {
@@ -112,12 +111,7 @@ export default function LoginScreen() {
       window.location.href = buildGoogleWebRedirectUrl();
       return;
     }
-    try {
-      await promptAsync();
-    } catch (e: any) {
-      setErr(e?.message || 'Login failed');
-      setBusy(false);
-    }
+    await loginNative();
   };
 
   return (
