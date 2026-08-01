@@ -96,12 +96,28 @@ def seed_range_txns(mongo_db):
     minutes_since_midnight = now.hour * 60 + now.minute
     delta = min(60, max(1, minutes_since_midnight - 1))
     today = now - timedelta(minutes=delta)
-    yesterday = today - timedelta(days=1)
-    three_days_ago = today - timedelta(days=3)
-    this_month_early = now.replace(day=2, hour=10, minute=0, second=0, microsecond=0) \
-        if now.day >= 2 else today  # early in month
-    last_month = (now.replace(day=1) - timedelta(days=5)).replace(hour=12, minute=0, second=0, microsecond=0)
-    two_months_ago = (now.replace(day=1) - timedelta(days=40)).replace(hour=12, minute=0, second=0, microsecond=0)
+
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def _clamp_to_month(candidate):
+        # Near the start of a month, "N days before today" can fall in the *previous*
+        # month, silently dropping the doc from "this month" aggregates the tests
+        # expect it in. Clamp forward to month start instead. On the 1st specifically,
+        # month_start == today_start, so the clamped result unavoidably lands inside
+        # today's own window too (there's no valid "earlier this month, not today"
+        # instant when today IS day one) — test_range_today accounts for that case.
+        return candidate if candidate >= month_start else month_start
+
+    yesterday = _clamp_to_month(today - timedelta(days=1))
+    three_days_ago = _clamp_to_month(today - timedelta(days=3))
+    this_month_early = _clamp_to_month(today - timedelta(days=2))
+    # 10 days before month start (not a fixed "5"): guarantees this also stays outside
+    # the rolling "last 7 days" week window no matter how early in the month "today"
+    # is — 5 days of margin wasn't enough (month_start - 5 days can be less than a
+    # week before "now" when today is within the first few days of a month).
+    last_month = (month_start - timedelta(days=10)).replace(hour=12, minute=0, second=0, microsecond=0)
+    two_months_ago = (month_start - timedelta(days=40)).replace(hour=12, minute=0, second=0, microsecond=0)
 
     mongo_db.transactions.delete_many({"user_id": TEST_USER_ID})
     docs = [
@@ -151,10 +167,20 @@ class TestSprint3All:
         # start = midnight today
         start = datetime.fromisoformat(data["range"]["start"])
         assert start.hour == 0 and start.minute == 0 and start.date() == now.date()
-        # Only today's debit (100) counts
-        assert data["month_spend"] == 100.0
-        # Only 1 debit today (credit is dated earlier in the month; dup excluded)
-        assert data["total_transactions"] == 1
+        if now.day == 1:
+            # No valid "earlier this month, not today" instant exists on the 1st
+            # (month start == start of today) — seed_range_txns' yesterday /
+            # three-days-ago / this-month-early docs unavoidably collapse into
+            # today's own window too in that case. total_transactions counts all 4
+            # non-duplicate docs (3 debits + the SALARY credit); month_spend only
+            # sums the debits.
+            assert data["month_spend"] == 600.0
+            assert data["total_transactions"] == 4
+        else:
+            # Only today's debit (100) counts
+            assert data["month_spend"] == 100.0
+            # Only 1 debit today (credit is dated earlier in the month; dup excluded)
+            assert data["total_transactions"] == 1
 
     def test_range_week(self, api, auth_headers, seed_range_txns):
         r = api.get(f"{BASE_URL}/api/dashboard?range=week", headers=auth_headers)

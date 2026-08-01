@@ -16,6 +16,17 @@ def _insert_txn(mongo_db, *, merchant, amount, category, days_ago=0,
                 direction="debit", is_duplicate=False):
     now = datetime.now(timezone.utc)
     txn_date = now - timedelta(days=days_ago)
+    # Small offsets (this file only uses up to 5) mean "earlier this month" for
+    # current-month aggregation tests, not literally N calendar days ago — near the
+    # start of a month that arithmetic spills into the previous month, silently
+    # dropping the doc from "this month" sums. Clamp forward to month start instead.
+    # Large offsets (35/70+) are deliberately testing month-spanning behavior and are
+    # left untouched — there's a clear gap between the two uses, so a threshold well
+    # above 5 and well below 35 can't misfire either way.
+    if days_ago <= 27:
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        if txn_date < month_start:
+            txn_date = month_start
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": TEST_USER_ID,
