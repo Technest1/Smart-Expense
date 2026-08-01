@@ -143,6 +143,7 @@ async def auth_google(payload: GoogleAuthRequest):
             payload.id_token, google_auth_requests.Request(), GOOGLE_CLIENT_ID
         )
     except Exception as e:
+        logger.warning(f"Google id_token verification failed (configured GOOGLE_CLIENT_ID={GOOGLE_CLIENT_ID!r}): {e}")
         raise HTTPException(status_code=401, detail=f"Invalid Google id_token: {e}")
 
     email = claims.get("email")
