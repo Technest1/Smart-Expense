@@ -1123,6 +1123,13 @@ async def gmail_disconnect(authorization: Optional[str] = Header(None)):
 async def root():
     return {"message": "ExpenseSync API", "ok": True}
 
+# The bare domain root (as opposed to /api/) has no API meaning — it 404'd by default,
+# which reads as broken to anyone who visits the plain Render URL in a browser. Point
+# them at the actual API health check instead.
+@app.get("/")
+async def app_root():
+    return {"message": "ExpenseSync API", "ok": True, "api": "/api/", "privacy": "/privacy"}
+
 # Served at the app root (not under /api) since this is the URL that goes into the
 # Play Console listing and Google OAuth consent screen configuration, not an API client.
 @app.get("/privacy", response_class=HTMLResponse)
