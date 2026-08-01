@@ -26,7 +26,16 @@ export async function apiFetch<T = any>(path: string, opts: RequestInit = {}): P
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
   if (res.status === 401) {
     await clearToken();
-    throw new Error('unauthenticated');
+    // Surface the server's actual reason (e.g. why a Google id_token was rejected)
+    // instead of a bare "unauthenticated" — that's hidden critical detail for the
+    // one call (sign-in) where the user isn't already authenticated and has no other
+    // way to see it.
+    let detail = '';
+    try {
+      const body = await res.json();
+      detail = body?.detail || '';
+    } catch {}
+    throw new Error(detail ? `unauthenticated: ${detail}` : 'unauthenticated');
   }
   if (!res.ok) {
     const t = await res.text();
