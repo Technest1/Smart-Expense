@@ -15,6 +15,7 @@ from pathlib import Path
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
 from privacy_policy import PRIVACY_POLICY_HTML
+from delete_account import DELETE_ACCOUNT_HTML
 from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
@@ -1136,6 +1137,12 @@ async def app_root():
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_policy():
     return PRIVACY_POLICY_HTML
+
+# Play Console's Data Safety section requires a dedicated, prominent URL for account
+# deletion requests — separate from the general privacy policy.
+@app.get("/delete-account", response_class=HTMLResponse)
+async def delete_account_page():
+    return DELETE_ACCOUNT_HTML
 
 # ---------- STARTUP ----------
 @app.on_event("startup")
