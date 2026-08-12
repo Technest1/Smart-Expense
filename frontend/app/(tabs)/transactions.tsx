@@ -4,11 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/src/api/client';
-import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR } from '@/src/theme';
+import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR, displayMerchant } from '@/src/theme';
 
 type Txn = {
   id: string; amount: number; direction: 'debit' | 'credit'; merchant: string;
   category: string; txn_date: string; source: string; is_duplicate: boolean;
+  payment_mode?: string | null;
 };
 
 const CATS = ['All', 'Food & Dining', 'Transport', 'Shopping', 'Groceries', 'Entertainment', 'Bills & Utilities', 'Health', 'Transfers', 'Uncategorized'];
@@ -122,7 +123,7 @@ export default function TransactionsScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.merchant} numberOfLines={1}>{item.merchant}</Text>
+                    <Text style={styles.merchant} numberOfLines={1}>{displayMerchant(item)}</Text>
                     {item.is_duplicate && (
                       <View style={styles.dupBadge}>
                         <Text style={styles.dupBadgeText}>DUP</Text>
@@ -139,6 +140,13 @@ export default function TransactionsScreen() {
           }}
         />
       )}
+
+      <Pressable
+        testID="add-transaction-fab"
+        onPress={() => router.push('/transaction/new')}
+        style={styles.fab}>
+        <Ionicons name="add" size={26} color="#fff" />
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -166,4 +174,10 @@ const styles = StyleSheet.create({
   amount: { fontSize: 15, fontWeight: '700' },
   dupBadge: { backgroundColor: theme.color.warning, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
   dupBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  fab: {
+    position: 'absolute', right: theme.spacing.lg, bottom: theme.spacing.lg,
+    width: 56, height: 56, borderRadius: 28, backgroundColor: theme.color.brand,
+    alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 4,
+  },
 });

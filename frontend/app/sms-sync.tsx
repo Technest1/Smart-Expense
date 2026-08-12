@@ -3,23 +3,24 @@ import { View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndica
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { runSmsSync, SmsSyncResult } from '@/src/services/smsSync';
 import { theme } from '@/src/theme';
 
 /**
- * SMS Sync — Android permission flow scaffold.
+ * SMS Sync — real Android SMS reading.
  *
- * Reading SMS from the inbox is NOT possible in Expo Go / preview and requires:
- * 1. A native APK build (Publish → Generate Android build)
- * 2. `android.permission.READ_SMS` (declared in app.json)
- * 3. A native SMS reader module (e.g., react-native-get-sms-android)
- *
- * This screen requests the permission when available and gives the user a clear
- * status so the plumbing is ready for the APK build.
+ * Reading SMS from the inbox only works in a native APK build (not Expo Go / web
+ * preview) and requires `android.permission.READ_SMS` + `RECEIVE_SMS` (declared in
+ * app.json) plus the native SmsReceiver/SmsHeadlessTaskService wired in via
+ * plugins/withSmsReceiver.js — those pick up new SMS automatically in the background.
+ * The "Sync now" button below runs the exact same logic on demand.
  */
 export default function SmsSyncScreen() {
   const router = useRouter();
   const [status, setStatus] = useState<'idle' | 'granted' | 'denied' | 'unavailable'>('idle');
   const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<SmsSyncResult | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const requestPerm = async () => {
     if (Platform.OS !== 'android') {
@@ -28,16 +29,11 @@ export default function SmsSyncScreen() {
     }
     setBusy(true);
     try {
-      const res = await PermissionsAndroid.request(
+      const res = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.READ_SMS,
-        {
-          title: 'Read SMS to track expenses',
-          message: 'ExpenseSync will scan bank SMS to auto-track your expenses. Nothing else is read.',
-          buttonPositive: 'Allow',
-          buttonNegative: 'Not now',
-        }
-      );
-      if (res === PermissionsAndroid.RESULTS.GRANTED) {
+        PermissionsAndroid.PERMISSIONS.RECEIVE_SMS,
+      ]);
+      if (res[PermissionsAndroid.PERMISSIONS.READ_SMS] === PermissionsAndroid.RESULTS.GRANTED) {
         setStatus('granted');
       } else {
         setStatus('denied');
@@ -46,6 +42,20 @@ export default function SmsSyncScreen() {
       setStatus('unavailable');
     }
     setBusy(false);
+  };
+
+  const syncNow = async () => {
+    setBusy(true);
+    setSyncError(null);
+    setResult(null);
+    try {
+      const r = await runSmsSync();
+      setResult(r);
+    } catch (e: any) {
+      setSyncError(e?.message || 'Sync failed');
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -65,16 +75,21 @@ export default function SmsSyncScreen() {
           </View>
           <Text style={styles.heroTitle}>Track expenses automatically</Text>
           <Text style={styles.heroSub}>
-            Grant permission to read your bank SMS. We scan only messages from bank
-            sender IDs (VM-HDFCBK, ICICI, etc.) and never store the raw text of anything else.
+            Grant permission to read your bank SMS. We check messages on your device
+            first — only ones from bank/merchant sender IDs (not personal contacts)
+            that actually look like a transaction are sent for parsing; everything
+            else, including OTPs and promotions, never leaves your phone. New SMS are
+            picked up automatically in the background, even when the app is closed.
           </Text>
         </View>
 
         <View style={styles.warnCard} testID="sms-warning">
           <Ionicons name="information-circle" size={20} color={theme.color.warning} />
           <Text style={styles.warnText}>
-            This feature only activates in the installed Android app.
-            Preview (Expo Go / web) cannot access the SMS inbox. Publish and install the APK build to use it.
+            This feature only works in the installed native app, not Expo Go/web preview.
+            Background delivery depends on your phone's battery-optimization settings —
+            if syncing feels delayed, disable battery optimization / enable auto-launch
+            for this app.
           </Text>
         </View>
 
@@ -94,10 +109,44 @@ export default function SmsSyncScreen() {
               color={status === 'granted' ? theme.color.success : theme.color.warning}
             />
             <Text style={styles.statusText}>
-              {status === 'granted' && 'Permission granted. Actual SMS reading lights up once you install the APK build with the native SMS reader.'}
+              {status === 'granted' && 'Permission granted. Tap "Sync now" to read your inbox, or wait for new SMS to sync automatically.'}
               {status === 'denied' && 'Permission denied. Enable READ_SMS from Android app settings to try again.'}
-              {status === 'unavailable' && 'Not available on this platform. Install the APK build to use this feature.'}
+              {status === 'unavailable' && 'Not available on this platform. Install the native Android app to use this feature.'}
             </Text>
+          </View>
+        )}
+
+        {status === 'granted' && (
+          <Pressable
+            testID="sync-now-btn"
+            onPress={syncNow}
+            disabled={busy}
+            style={[styles.secondaryBtn, { marginTop: theme.spacing.md }, busy && { opacity: 0.5 }]}>
+            {busy ? <ActivityIndicator color={theme.color.onSurface} /> : <Text style={styles.secondaryBtnText}>Sync now</Text>}
+          </Pressable>
+        )}
+
+        {syncError ? <Text style={styles.errText} testID="sync-error">{syncError}</Text> : null}
+
+        {result && (
+          <View style={styles.resultCard} testID="sync-result">
+            <Text style={styles.resultTitle}>Sync summary</Text>
+            <View style={styles.resultRow}>
+              <Ionicons name="mail-open" size={16} color={theme.color.onSurfaceTertiary} />
+              <Text style={styles.resultText}>{result.scanned} bank-like messages scanned</Text>
+            </View>
+            <View style={styles.resultRow}>
+              <Ionicons name="checkmark-circle" size={16} color={theme.color.success} />
+              <Text style={styles.resultText}>{result.saved} saved</Text>
+            </View>
+            <View style={styles.resultRow}>
+              <Ionicons name="alert-circle" size={16} color={theme.color.warning} />
+              <Text style={styles.resultText}>{result.duplicates} flagged as duplicate</Text>
+            </View>
+            <View style={styles.resultRow}>
+              <Ionicons name="remove-circle" size={16} color={theme.color.onSurfaceTertiary} />
+              <Text style={styles.resultText}>{result.skipped} not a transaction</Text>
+            </View>
           </View>
         )}
 
@@ -129,6 +178,11 @@ const styles = StyleSheet.create({
   statusOk: { backgroundColor: '#E5EBE7', borderColor: '#C7DCC7' },
   statusWarn: { backgroundColor: '#FDF6E6', borderColor: '#F3E1B2' },
   statusText: { flex: 1, fontSize: 13, color: theme.color.onSurfaceSecondary, lineHeight: 19 },
+  errText: { color: theme.color.error, marginTop: theme.spacing.md, textAlign: 'center' },
+  resultCard: { marginTop: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, padding: theme.spacing.lg, borderRadius: theme.radius.md, gap: 8 },
+  resultTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface, marginBottom: theme.spacing.sm },
+  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  resultText: { color: theme.color.onSurface, fontSize: 14 },
   sectionLabel: { fontSize: 11, letterSpacing: 1, color: theme.color.onSurfaceTertiary, fontWeight: '700', marginBottom: theme.spacing.sm },
   secondaryBtn: { borderColor: theme.color.borderStrong, borderWidth: 1, paddingVertical: 12, borderRadius: theme.radius.md, alignItems: 'center' },
   secondaryBtnText: { color: theme.color.onSurface, fontWeight: '600', fontSize: 14 },

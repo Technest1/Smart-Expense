@@ -100,7 +100,7 @@ export default function Settings() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>Parsing engine</Text>
-              <Text style={styles.rowSub}>Regex + AI (Claude Sonnet) with dedup</Text>
+              <Text style={styles.rowSub}>Regex-based parsing with dedup</Text>
             </View>
           </View>
           <View style={styles.divider} />

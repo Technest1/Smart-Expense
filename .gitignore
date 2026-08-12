@@ -73,6 +73,10 @@ agenthub/agents/youtube/db
 *.deb
 *.dylib
 
+# Android release build artifacts (large binaries, regenerate via gradlew bundleRelease)
+*.aab
+play-store/release-builds/
+
 # Build caches
 .cache/
 

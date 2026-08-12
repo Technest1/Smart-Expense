@@ -11,6 +11,8 @@ web-build/
 expo-env.d.ts
 
 # Native
+/android/
+/ios/
 .kotlin/
 *.orig.*
 *.jks
@@ -18,6 +20,9 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
+
+# Release signing — never commit the keystore or its passwords
+/android-signing/
 
 # Metro
 .metro-health-check*

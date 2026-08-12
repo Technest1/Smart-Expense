@@ -57,3 +57,23 @@ export function formatINR(n: number): string {
   const abs = Math.abs(n);
   return '₹' + abs.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
+
+// Payment-mode fallback labels — shown only when the parser couldn't find a real
+// merchant name (backend keeps merchant = "Unknown" in that case so dedup logic
+// stays untouched; this is purely a display-layer improvement).
+const PAYMENT_MODE_LABELS: Record<string, { debit: string; credit: string }> = {
+  upi: { debit: 'UPI Payment', credit: 'UPI Received' },
+  atm: { debit: 'ATM Withdrawal', credit: 'ATM Withdrawal' },
+  neft: { debit: 'NEFT Transfer', credit: 'NEFT Received' },
+  imps: { debit: 'IMPS Transfer', credit: 'IMPS Received' },
+  rtgs: { debit: 'RTGS Transfer', credit: 'RTGS Received' },
+  cheque: { debit: 'Cheque Payment', credit: 'Cheque Deposit' },
+  card: { debit: 'Card Payment', credit: 'Card Refund' },
+  other: { debit: 'Bank Transfer', credit: 'Bank Credit' },
+};
+
+export function displayMerchant(t: { merchant: string; payment_mode?: string | null; direction: 'debit' | 'credit' }): string {
+  if (t.merchant && t.merchant !== 'Unknown') return t.merchant;
+  const labels = PAYMENT_MODE_LABELS[t.payment_mode || 'other'] || PAYMENT_MODE_LABELS.other;
+  return t.direction === 'credit' ? labels.credit : labels.debit;
+}

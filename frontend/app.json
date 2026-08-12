@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "Smart Expense",
     "slug": "frontend",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "frontend",
@@ -15,10 +15,11 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000000"
+        "backgroundColor": "#2E4F3D"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.smartexpense.app",
+      "versionCode": 2,
       "permissions": [
         "android.permission.READ_SMS",
         "android.permission.RECEIVE_SMS"
@@ -39,7 +40,10 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin",
+      "./plugins/withSmsReceiver.js",
+      "./plugins/withReleaseSigning.js"
     ],
     "experiments": {
       "typedRoutes": true

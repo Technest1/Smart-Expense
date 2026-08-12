@@ -4,13 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/src/api/client';
-import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR } from '@/src/theme';
+import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR, displayMerchant } from '@/src/theme';
 
 type Txn = {
   id: string; amount: number; direction: 'debit' | 'credit'; merchant: string;
   category: string; txn_date: string; source: string; is_duplicate: boolean;
   duplicate_of?: string | null; raw_text: string; ref_id?: string | null;
-  account?: string | null; parser: string;
+  account?: string | null; parser: string; payment_mode?: string | null;
 };
 
 const CATS = ['Food & Dining', 'Transport', 'Shopping', 'Groceries', 'Entertainment', 'Bills & Utilities', 'Health', 'Transfers', 'Uncategorized'];
@@ -84,7 +84,7 @@ export default function TransactionDetail() {
           <View style={[styles.heroIcon, { backgroundColor: color + '22' }]}>
             <Ionicons name={CATEGORY_ICONS[txn.category] || 'ellipsis-horizontal-outline'} size={26} color={color} />
           </View>
-          <Text style={styles.merchant}>{txn.merchant}</Text>
+          <Text style={styles.merchant}>{displayMerchant(txn)}</Text>
           <Text style={[styles.amount, { color: txn.direction === 'credit' ? theme.color.success : theme.color.onSurface }]}>
             {txn.direction === 'credit' ? '+' : '-'}{formatINR(txn.amount)}
           </Text>

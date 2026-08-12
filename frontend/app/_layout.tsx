@@ -1,17 +1,27 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
-import { LogBox, View, ActivityIndicator, StyleSheet } from 'react-native';
+import { AppRegistry, LogBox, Platform, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StatusBar } from 'expo-status-bar';
 
 import { useIconFonts } from '@/src/hooks/use-icon-fonts';
 import { AuthProvider, useAuth } from '@/src/contexts/AuthContext';
+import { runSmsSync } from '@/src/services/smsSync';
 import { theme } from '@/src/theme';
 
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
+
+// Registered at module scope so it's in place before the OS starts the headless
+// task from SmsReceiver.kt — the headless launch still evaluates this same JS
+// bundle/entry point, just without mounting an Activity.
+if (Platform.OS === 'android') {
+  AppRegistry.registerHeadlessTask('SmsSyncTask', () => async () => {
+    await runSmsSync();
+  });
+}
 
 function RootNav() {
   const { user, loading } = useAuth();

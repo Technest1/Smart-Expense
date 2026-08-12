@@ -4,12 +4,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/src/api/client';
-import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR } from '@/src/theme';
+import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR, displayMerchant } from '@/src/theme';
 import { useAuth } from '@/src/contexts/AuthContext';
 
 type Txn = {
   id: string; amount: number; direction: 'debit' | 'credit'; merchant: string;
   category: string; txn_date: string; source: string; is_duplicate: boolean;
+  payment_mode?: string | null;
 };
 type Dash = {
   range?: { key: string; label: string; start: string; end: string };
@@ -19,7 +20,21 @@ type Dash = {
   budgets?: { id: string; category: string; monthly_limit: number; spent: number; pct: number; over_budget: boolean; near_limit: boolean }[];
   recurring_count?: number;
 };
-type AccountBalance = { account: string; balance: number; as_of: string };
+type AccountBalance = { account: string; balance: number; as_of: string; bank: string | null };
+
+const BANK_AVATAR_COLORS = ['#2E4F3D', '#4A6FA5', '#8B5B9F', '#C25A3A', '#A87A2B', '#2F7A78'];
+
+function bankInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
+
+function bankAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return BANK_AVATAR_COLORS[hash % BANK_AVATAR_COLORS.length];
+}
 
 const RANGES: { key: string; label: string }[] = [
   { key: 'today', label: 'Today' },
@@ -112,12 +127,6 @@ export default function Dashboard() {
             <Text style={styles.hello}>Hi{user?.name ? `, ${user.name.split(' ')[0]}` : ''}</Text>
             <Text style={styles.headerSub}>{currentLabel} at a glance</Text>
           </View>
-          <Pressable
-            testID="import-nav-button"
-            onPress={() => router.push('/import')}
-            style={styles.iconBtn}>
-            <Ionicons name="add" size={22} color={theme.color.onSurface} />
-          </Pressable>
         </View>
 
         <ScrollView
@@ -305,7 +314,7 @@ export default function Dashboard() {
                     />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.txnMerchant} numberOfLines={1}>{t.merchant}</Text>
+                    <Text style={styles.txnMerchant} numberOfLines={1}>{displayMerchant(t)}</Text>
                     <Text style={styles.txnMeta}>{t.category} • {new Date(t.txn_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</Text>
                   </View>
                   <Text style={[styles.txnAmount, { color: t.direction === 'credit' ? theme.color.success : theme.color.onSurface }]}>
@@ -351,6 +360,42 @@ export default function Dashboard() {
               </Pressable>
               <Pressable testID="custom-apply" onPress={applyCustom} style={styles.modalPrimary}>
                 <Text style={styles.modalPrimaryText}>Apply</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={balancesSheet} transparent animationType="fade" onRequestClose={() => setBalancesSheet(false)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard} testID="account-balances-modal">
+            <Text style={styles.modalTitle}>Account balances</Text>
+            <Text style={styles.modalSub}>Last known balance per account, from bank SMS/email</Text>
+            <ScrollView style={{ maxHeight: 320, marginTop: theme.spacing.md }}>
+              {(accounts?.items || []).map((a, i) => (
+                <View key={a.account} style={[styles.acctDetailRow, i > 0 && styles.rowBorder]}>
+                  {a.bank ? (
+                    <View style={[styles.acctDetailAvatar, { backgroundColor: bankAvatarColor(a.bank) }]}>
+                      <Text style={styles.acctDetailAvatarText}>{bankInitials(a.bank)}</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.acctDetailIcon}>
+                      <Ionicons name="card-outline" size={18} color={theme.color.brand} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.acctDetailName}>{a.bank || 'Bank account'}</Text>
+                    <Text style={styles.acctDetailMeta}>
+                      {a.account} • as of {new Date(a.as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </Text>
+                  </View>
+                  <Text style={styles.acctDetailBalance}>{formatINR(a.balance)}</Text>
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.modalActions}>
+              <Pressable testID="balances-close" onPress={() => setBalancesSheet(false)} style={styles.modalPrimary}>
+                <Text style={styles.modalPrimaryText}>Close</Text>
               </Pressable>
             </View>
           </View>
@@ -425,13 +470,27 @@ const styles = StyleSheet.create({
   rangeChipActive: { backgroundColor: theme.color.surfaceInverse, borderColor: theme.color.surfaceInverse },
   rangeChipText: { fontSize: 13, color: theme.color.onSurfaceSecondary, fontWeight: '600' },
   rangeChipTextActive: { color: '#fff' },
-  acctSection: { marginTop: theme.spacing.xl },
-  acctRow: { paddingHorizontal: theme.spacing.lg, gap: 10 },
-  acctCard: { width: 160, backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.color.border },
-  acctIcon: { width: 30, height: 30, borderRadius: 15, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center', marginBottom: theme.spacing.sm },
-  acctName: { fontSize: 12, color: theme.color.onSurfaceTertiary, fontWeight: '600' },
-  acctBalance: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface, marginTop: 2 },
-  acctMeta: { fontSize: 11, color: theme.color.onSurfaceTertiary, marginTop: 4 },
+  acctSection: { marginTop: theme.spacing.md },
+  totalBalCard: {
+    marginHorizontal: theme.spacing.lg,
+    backgroundColor: theme.color.surfaceSecondary,
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+  },
+  totalBalRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  totalBalIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center' },
+  totalBalLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 1, color: theme.color.onSurfaceTertiary },
+  totalBalAmount: { fontSize: 20, fontWeight: '700', color: theme.color.onSurface, marginTop: 2 },
+  totalBalMeta: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
+  acctDetailRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: theme.spacing.md },
+  acctDetailIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center' },
+  acctDetailAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  acctDetailAvatarText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  acctDetailName: { fontSize: 14, fontWeight: '600', color: theme.color.onSurface },
+  acctDetailMeta: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
+  acctDetailBalance: { fontSize: 15, fontWeight: '700', color: theme.color.onSurface },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: theme.spacing.xl },
   modalCard: { backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.lg, padding: theme.spacing.xl, width: '100%', maxWidth: 380 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface },

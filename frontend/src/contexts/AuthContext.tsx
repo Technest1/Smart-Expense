@@ -5,7 +5,7 @@ type User = { user_id: string; email: string; name: string; picture?: string | n
 type AuthState = {
   user: User | null;
   loading: boolean;
-  signInWithGoogleIdToken: (t: string) => Promise<User>;
+  signInWithGoogleIdToken: (t: string, serverAuthCode?: string) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -34,10 +34,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })();
   }, [refresh]);
 
-  const signInWithGoogleIdToken = async (id_token: string) => {
+  const signInWithGoogleIdToken = async (id_token: string, serverAuthCode?: string) => {
     const data = await apiFetch<{ session_token: string; user: User }>('/auth/google', {
       method: 'POST',
-      body: JSON.stringify({ id_token }),
+      body: JSON.stringify({ id_token, server_auth_code: serverAuthCode }),
     });
     await saveToken(data.session_token);
     setUser(data.user);
