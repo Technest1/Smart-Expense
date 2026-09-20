@@ -3,6 +3,13 @@
 Copy/paste starting points for the Play Console store listing. Edit freely — these are
 drafts, not final copy. Character limits noted are Play Console's hard limits.
 
+## App name (max 30 characters)
+
+```
+Moneta: Auto Expense Tracker
+```
+(29 characters)
+
 ## Short description (max 80 characters)
 
 ```
@@ -13,11 +20,11 @@ Auto-track expenses from bank SMS — filtered on-device, private.
 ## Full description (max 4000 characters)
 
 ```
-Smart Expense automatically tracks your spending by reading bank and merchant
+Moneta automatically tracks your spending by reading bank and merchant
 transaction messages — no manual entry required.
 
 HOW IT WORKS
-Grant SMS access and Smart Expense scans incoming messages for bank and
+Grant SMS access and Moneta scans incoming messages for bank and
 merchant transaction alerts. Filtering happens on your device first: only
 messages that already look like a real transaction (a bank/merchant sender,
 an amount, and a debit/credit keyword) are ever sent anywhere. Personal
@@ -31,12 +38,12 @@ FEATURES
 • Works fully in the background — no need to open the app after setup
 
 YOUR DATA
-Smart Expense only extracts financial transaction data — amount, merchant,
+Moneta only extracts financial transaction data — amount, merchant,
 date, category. It does not read or store your personal conversations,
 OTP codes, or any message that isn't already transaction-shaped, and this
 filtering happens before anything is sent to our servers, not after.
 
-Full privacy policy: https://smart-expense-backend-it1s.onrender.com/privacy
+Full privacy policy: https://technest1.github.io/Smart-Expense/privacy.html
 ```
 
 ## Data Safety form — reference answers

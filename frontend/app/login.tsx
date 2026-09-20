@@ -130,7 +130,7 @@ export default function LoginScreen() {
           <View style={styles.brandBadge}>
             <Ionicons name="wallet" size={20} color={theme.color.brand} />
           </View>
-          <Text style={styles.brand}>Smart Expense</Text>
+          <Text style={styles.brand}>Moneta</Text>
           <Text style={styles.tagline}>
             Never miss an expense again; your budget updates itself.
           </Text>

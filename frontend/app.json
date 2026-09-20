@@ -1,16 +1,16 @@
 {
   "expo": {
-    "name": "Smart Expense",
-    "slug": "frontend",
-    "version": "1.0.1",
+    "name": "Moneta",
+    "slug": "moneta",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "moneta",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.smartexpense.app"
+      "bundleIdentifier": "com.technest.moneta"
     },
     "android": {
       "adaptiveIcon": {
@@ -18,8 +18,8 @@
         "backgroundColor": "#2E4F3D"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.smartexpense.app",
-      "versionCode": 2,
+      "package": "com.technest.moneta",
+      "versionCode": 1,
       "permissions": [
         "android.permission.READ_SMS",
         "android.permission.RECEIVE_SMS"

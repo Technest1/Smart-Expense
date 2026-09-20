@@ -6,12 +6,12 @@ keep the core claims accurate since Google checks them against the actual app be
 
 ## Core use case
 Select: **"SMS-based money management"** — the exception described as "apps that track
-and manage budget." This directly matches what Smart Expense does.
+and manage budget." This directly matches what Moneta does.
 
 ## Why does your app need this permission? (free text field)
 
 ```
-Smart Expense is a personal budget-tracking app. Its core function is detecting
+Moneta is a personal budget-tracking app. Its core function is detecting
 financial transactions from bank/merchant SMS so the user doesn't have to enter
 spending manually. READ_SMS lets the app scan the inbox for these messages;
 RECEIVE_SMS lets it pick up new transaction alerts in the background without the

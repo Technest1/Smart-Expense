@@ -1,4 +1,4 @@
-package com.smartexpense.app.sms
+package com.technest.moneta.sms
 
 import android.content.Intent
 import com.facebook.react.HeadlessJsTaskService

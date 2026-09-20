@@ -2,7 +2,7 @@ const { withAndroidManifest, withDangerousMod } = require('expo/config-plugins')
 const fs = require('fs');
 const path = require('path');
 
-const PACKAGE_PATH = 'com/smartexpense/app/sms';
+const PACKAGE_PATH = 'com/technest/moneta/sms';
 const SOURCE_DIR = path.join(__dirname, '..', 'android-plugin-src');
 
 // Adds the SMS_RECEIVED broadcast receiver + headless task service so incoming SMS
