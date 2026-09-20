@@ -12,8 +12,12 @@ const PROMO_RE = /\b(cashback|discount|offer|reward|coupon|t&c\s*apply|apply now
 const FAILED_PAYMENT_RE =
   /\b(?:has|have)\s+failed\b|\b(?:payment|transaction|txn|transfer)\b.{0,40}?\b(?:declined|unsuccessful)\b|\b(?:declined|unsuccessful)\b.{0,40}?\b(?:payment|transaction|txn|transfer)\b|\bspam\b/i;
 
+// Stockbroker ledger notices ("Dear Client ... With Holding balance") look like credits but
+// aren't bank transactions. Mirrors BROKERAGE_RE in backend/server.py.
+const BROKERAGE_RE = /\bdear\s+client\b|\bwith\s*holding\s+balance\b|\btrade\s*confirmation\b/i;
+
 export function looksLikeTransaction(text: string): boolean {
-  if (PROMO_RE.test(text) || FAILED_PAYMENT_RE.test(text)) return false;
+  if (PROMO_RE.test(text) || FAILED_PAYMENT_RE.test(text) || BROKERAGE_RE.test(text)) return false;
   if (!AMOUNT_RE.test(text)) return false;
   return DEBIT_RE.test(text) || CREDIT_RE.test(text);
 }

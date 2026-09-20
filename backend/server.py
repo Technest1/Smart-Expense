@@ -268,7 +268,15 @@ FAILED_PAYMENT_RE = re.compile(
     r"|\bspam\b",
     re.IGNORECASE,
 )
-REF_RE = re.compile(r"(?:ref(?:no|erence)?[:\s#]*|txn[:\s#]*|upi ref[:\s]*|imps[:\s]*)([A-Z0-9]{6,})", re.IGNORECASE)
+# Stockbroker ledger/margin notices ("Dear Client (6229027)... Received Rs.15926 ...
+# With Holding balance") read like a credit but are not bank transactions. Bank
+# alerts say "Dear Customer", never "Dear Client". Keep in sync with
+# frontend/src/services/transactionFilter.ts.
+BROKERAGE_RE = re.compile(
+    r"\bdear\s+client\b|\bwith\s*holding\s+balance\b|\btrade\s*confirmation\b",
+    re.IGNORECASE,
+)
+REF_RE =re.compile(r"(?:ref(?:no|erence)?[:\s#]*|txn[:\s#]*|upi ref[:\s]*|imps[:\s]*)([A-Z0-9]{6,})", re.IGNORECASE)
 # An explicit "Merchant: X" label (common in EMI/credit-card notification emails)
 # is a far more reliable signal than the guess-based patterns below — checked first.
 MERCHANT_LABEL_RE = re.compile(r"merchant\s*[:\-]\s*([A-Za-z][A-Za-z0-9 &.'\-]{2,40})", re.IGNORECASE)
@@ -364,7 +372,7 @@ def detect_payment_mode(text: str) -> str:
     return "other"
 
 def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]:
-    if PROMO_RE.search(text) or FAILED_PAYMENT_RE.search(text):
+    if PROMO_RE.search(text) or FAILED_PAYMENT_RE.search(text) or BROKERAGE_RE.search(text):
         return None
     m = AMOUNT_RE.search(text)
     if not m:
