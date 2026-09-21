@@ -86,10 +86,9 @@ export default function SmsSyncScreen() {
         <View style={styles.warnCard} testID="sms-warning">
           <Ionicons name="information-circle" size={20} color={theme.color.warning} />
           <Text style={styles.warnText}>
-            This feature only works in the installed native app, not Expo Go/web preview.
             Background delivery depends on your phone's battery-optimization settings —
             if syncing feels delayed, disable battery optimization / enable auto-launch
-            for this app.
+            for Moneta.
           </Text>
         </View>
 

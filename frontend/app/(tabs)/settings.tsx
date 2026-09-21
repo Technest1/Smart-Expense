@@ -62,7 +62,7 @@ export default function Settings() {
               <Text style={styles.rowTitle}>Auto-read SMS</Text>
               <Text style={styles.rowSub}>Sync bank SMS from your phone</Text>
             </View>
-            <View style={styles.pillMuted}><Text style={styles.pillMutedText}>APK only</Text></View>
+            <Ionicons name="chevron-forward" size={18} color={theme.color.onSurfaceTertiary} />
           </Pressable>
 
           <View style={styles.divider} />
@@ -73,9 +73,9 @@ export default function Settings() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>Gmail sync</Text>
-              <Text style={styles.rowSub}>Auto-import bank emails (requires Google Cloud setup)</Text>
+              <Text style={styles.rowSub}>Auto-import bank emails</Text>
             </View>
-            <View style={styles.pillMuted}><Text style={styles.pillMutedText}>Soon</Text></View>
+            <View style={styles.pillMuted}><Text style={styles.pillMutedText}>Coming soon</Text></View>
           </View>
         </View>
 
