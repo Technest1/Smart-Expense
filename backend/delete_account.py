@@ -24,7 +24,7 @@ DELETE_ACCOUNT_HTML = """<!doctype html>
 <h2>How to request deletion</h2>
 <div class="box">
 <ol>
-  <li>Send an email to <a href="mailto:technest05@gmail.com">technest05@gmail.com</a> from the
+  <li>Send an email to <a href="mailto:technestapptest3@gmail.com">technestapptest3@gmail.com</a> from the
   same email address you used to sign in to Moneta (via Google Sign-In).</li>
   <li>Use the subject line: <code>Delete my Moneta account</code>.</li>
   <li>We verify the request matches your registered account, then delete your account and
@@ -46,7 +46,7 @@ beyond the 30-day processing window above, which exists only to verify and proce
 request safely.</p>
 
 <h2>Questions</h2>
-<p>Contact <a href="mailto:technest05@gmail.com">technest05@gmail.com</a> for anything not
+<p>Contact <a href="mailto:technestapptest3@gmail.com">technestapptest3@gmail.com</a> for anything not
 covered here, or see the full <a href="/privacy">Privacy Policy</a>.</p>
 
 </body>
