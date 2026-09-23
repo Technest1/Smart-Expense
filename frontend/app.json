@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Moneta",
+    "name": "Moneta: Auto Expense Tracker",
     "slug": "moneta",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -19,7 +19,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.technest.moneta",
-      "versionCode": 3,
+      "versionCode": 4,
       "permissions": [
         "android.permission.READ_SMS",
         "android.permission.RECEIVE_SMS"
