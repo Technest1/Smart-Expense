@@ -20,3 +20,5 @@ services:
         sync: false
       - key: TOKEN_ENCRYPTION_KEY
         sync: false
+      - key: REVIEWER_ACCESS_CODE
+        sync: false

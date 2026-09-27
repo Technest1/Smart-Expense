@@ -15,11 +15,12 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
+        "monochromeImage": "./assets/images/adaptive-icon-monochrome.png",
         "backgroundColor": "#2E4F3D"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.technest.moneta",
-      "versionCode": 4,
+      "versionCode": 6,
       "permissions": [
         "android.permission.READ_SMS",
         "android.permission.RECEIVE_SMS"
