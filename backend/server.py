@@ -33,6 +33,14 @@ db = client[os.environ['DB_NAME']]
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 
+# Google Play's own rejection notice for this app told us to add this: their reviewer's
+# device isn't linked to any Google account we can hand them, so native Google Sign-In
+# is unusable for review. This is a fixed out-of-band code (given only in the Play
+# Console "Instructions for review" field) that mints a session for a dedicated,
+# non-Google reviewer account, bypassing Google Sign-In entirely. Unset in prod = off.
+REVIEWER_ACCESS_CODE = os.environ.get("REVIEWER_ACCESS_CODE", "")
+REVIEWER_EMAIL = "play-reviewer@moneta.internal"
+
 # ---------- Gmail sync ----------
 TOKEN_ENCRYPTION_KEY = os.environ.get("TOKEN_ENCRYPTION_KEY", "")
 _fernet = Fernet(TOKEN_ENCRYPTION_KEY.encode()) if TOKEN_ENCRYPTION_KEY else None
@@ -90,6 +98,9 @@ class IngestRequest(BaseModel):
 class GoogleAuthRequest(BaseModel):
     id_token: str
     server_auth_code: Optional[str] = None
+
+class ReviewerLoginRequest(BaseModel):
+    code: str
 
 class TxnUpdateRequest(BaseModel):
     category: Optional[str] = None
@@ -211,6 +222,43 @@ async def _connect_gmail(user_id: str, server_auth_code: str):
             "gmail_connected_at": datetime.now(timezone.utc),
         }},
     )
+
+async def _mint_session(user_id: str) -> dict:
+    session_token = uuid.uuid4().hex
+    session_doc = {
+        "session_token": session_token,
+        "user_id": user_id,
+        "created_at": datetime.now(timezone.utc),
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=7),
+    }
+    await db.user_sessions.update_one(
+        {"session_token": session_token}, {"$set": session_doc}, upsert=True
+    )
+    user_doc = await db.users.find_one(
+        {"user_id": user_id},
+        {"_id": 0, "gmail_refresh_token_enc": 0, "gmail_connected_at": 0, "gmail_last_sync": 0},
+    )
+    return {"session_token": session_token, "user": user_doc}
+
+@api_router.post("/auth/reviewer-login")
+async def auth_reviewer_login(payload: ReviewerLoginRequest):
+    """Non-Google fallback so a Play Store reviewer isn't blocked by Google's own
+    'device must be linked to this account' restriction on native Google Sign-In.
+    See REVIEWER_ACCESS_CODE above — this is what Google's rejection notice called
+    a 'dedicated test bypass'."""
+    import hmac
+    if not REVIEWER_ACCESS_CODE or not hmac.compare_digest(payload.code, REVIEWER_ACCESS_CODE):
+        raise HTTPException(status_code=401, detail="Invalid code")
+
+    existing = await db.users.find_one({"email": REVIEWER_EMAIL}, {"_id": 0})
+    if existing:
+        user_id = existing["user_id"]
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        user_doc = User(user_id=user_id, email=REVIEWER_EMAIL, name="Play Store Reviewer", picture=None).dict()
+        await db.users.insert_one(user_doc)
+
+    return await _mint_session(user_id)
 
 @api_router.get("/auth/me")
 async def auth_me(authorization: Optional[str] = Header(None)):

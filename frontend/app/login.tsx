@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image, Dimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image, Dimensions, Platform, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GoogleSignin, isSuccessResponse } from '@react-native-google-signin/google-signin';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -55,9 +55,34 @@ function buildGoogleWebRedirectUrl(): string {
 }
 
 export default function LoginScreen() {
-  const { signInWithGoogleIdToken } = useAuth();
+  const { signInWithGoogleIdToken, signInWithReviewerCode } = useAuth();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Play Store reviewer fallback: Google's own rejection notice for this app said
+  // their reviewer's device can't use native Google Sign-In (it requires the account
+  // be linked to that device) and asked for "a dedicated test bypass". Tapping the
+  // badge 5x reveals a code field; the code itself lives only in the Play Console
+  // "Instructions for review" field, never in the UI, so real users never see this.
+  const [badgeTaps, setBadgeTaps] = useState(0);
+  const [showReviewerInput, setShowReviewerInput] = useState(false);
+  const [reviewerCode, setReviewerCode] = useState('');
+  const onBadgeTap = () => {
+    const next = badgeTaps + 1;
+    setBadgeTaps(next);
+    if (next >= 5) setShowReviewerInput(true);
+  };
+  const submitReviewerCode = async () => {
+    setErr(null);
+    setBusy(true);
+    try {
+      await signInWithReviewerCode(reviewerCode.trim());
+    } catch (e: any) {
+      setErr(e?.message || 'Invalid code');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // Web: pick up the id_token from the redirect back, once.
   useEffect(() => {
@@ -127,9 +152,9 @@ export default function LoginScreen() {
           style={StyleSheet.absoluteFill}
         />
         <SafeAreaView style={styles.heroContent} edges={['top']}>
-          <View style={styles.brandBadge}>
+          <Pressable style={styles.brandBadge} onPress={onBadgeTap}>
             <Ionicons name="wallet" size={20} color={theme.color.brand} />
-          </View>
+          </Pressable>
           <Text style={styles.brand}>Moneta</Text>
           <Text style={styles.tagline}>
             Never miss an expense again; your budget updates itself.
@@ -161,6 +186,28 @@ export default function LoginScreen() {
         </Pressable>
 
         {err ? <Text style={styles.err} testID="login-error">{err}</Text> : null}
+
+        {showReviewerInput && (
+          <View style={{ marginTop: theme.spacing.md, gap: 8 }}>
+            <TextInput
+              testID="reviewer-code-input"
+              value={reviewerCode}
+              onChangeText={setReviewerCode}
+              placeholder="Reviewer access code"
+              secureTextEntry
+              autoCapitalize="none"
+              style={{ borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, padding: 12, color: theme.color.onSurface }}
+              placeholderTextColor={theme.color.onSurfaceTertiary}
+            />
+            <Pressable
+              testID="reviewer-code-submit"
+              onPress={submitReviewerCode}
+              disabled={busy || !reviewerCode.trim()}
+              style={[styles.googleBtn, { marginTop: 0 }, (busy || !reviewerCode.trim()) && { opacity: 0.5 }]}>
+              <Text style={styles.googleBtnText}>Continue</Text>
+            </Pressable>
+          </View>
+        )}
 
         <Text style={styles.footNote}>
           By continuing, you agree to keep track of your finances responsibly.

@@ -6,6 +6,7 @@ type AuthState = {
   user: User | null;
   loading: boolean;
   signInWithGoogleIdToken: (t: string, serverAuthCode?: string) => Promise<User>;
+  signInWithReviewerCode: (code: string) => Promise<User>;
   signOut: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -44,6 +45,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return data.user;
   };
 
+  // Play Store reviewer fallback — see REVIEWER_ACCESS_CODE in backend/server.py.
+  const signInWithReviewerCode = async (code: string) => {
+    const data = await apiFetch<{ session_token: string; user: User }>('/auth/reviewer-login', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    await saveToken(data.session_token);
+    setUser(data.user);
+    return data.user;
+  };
+
   const signOut = async () => {
     try { await apiFetch('/auth/logout', { method: 'POST' }); } catch {}
     await clearToken();
@@ -51,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogleIdToken, signOut, refresh }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogleIdToken, signInWithReviewerCode, signOut, refresh }}>
       {children}
     </AuthContext.Provider>
   );
