@@ -20,7 +20,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.technest.moneta",
-      "versionCode": 6,
+      "versionCode": 8,
       "permissions": [
         "android.permission.READ_SMS",
         "android.permission.RECEIVE_SMS"
