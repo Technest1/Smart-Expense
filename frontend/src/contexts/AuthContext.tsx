@@ -8,6 +8,7 @@ type AuthState = {
   signInWithGoogleIdToken: (t: string, serverAuthCode?: string) => Promise<User>;
   signInWithReviewerCode: (code: string) => Promise<User>;
   signOut: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   refresh: () => Promise<void>;
 };
 
@@ -62,8 +63,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  const deleteAccount = async () => {
+    await apiFetch('/auth/account', { method: 'DELETE' });
+    await clearToken();
+    setUser(null);
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogleIdToken, signInWithReviewerCode, signOut, refresh }}>
+    <AuthContext.Provider value={{ user, loading, signInWithGoogleIdToken, signInWithReviewerCode, signOut, deleteAccount, refresh }}>
       {children}
     </AuthContext.Provider>
   );

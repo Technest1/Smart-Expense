@@ -8,7 +8,7 @@ import { useAuth } from '@/src/contexts/AuthContext';
 import { theme } from '@/src/theme';
 
 export default function Settings() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, deleteAccount } = useAuth();
   const router = useRouter();
 
   const confirmLogout = () => {
@@ -16,6 +16,28 @@ export default function Settings() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Log out', style: 'destructive', onPress: async () => { await signOut(); router.replace('/login'); } },
     ]);
+  };
+
+  const confirmDelete = () => {
+    Alert.alert(
+      'Delete account?',
+      'This permanently deletes your account, transactions and budgets. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteAccount();
+              router.replace('/login');
+            } catch (e: any) {
+              Alert.alert('Could not delete account', e?.message || 'Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -119,6 +141,11 @@ export default function Settings() {
         <Pressable testID="logout-button" onPress={confirmLogout} style={styles.logoutBtn}>
           <Ionicons name="log-out-outline" size={18} color={theme.color.error} />
           <Text style={styles.logoutText}>Log out</Text>
+        </Pressable>
+
+        <Pressable testID="delete-account-button" onPress={confirmDelete} style={[styles.logoutBtn, { marginTop: theme.spacing.md }]}>
+          <Ionicons name="trash-outline" size={18} color={theme.color.error} />
+          <Text style={styles.logoutText}>Delete account</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>

@@ -272,6 +272,18 @@ async def logout(authorization: Optional[str] = Header(None)):
         await db.user_sessions.delete_one({"session_token": token})
     return {"ok": True}
 
+@api_router.delete("/auth/account")
+async def delete_account(authorization: Optional[str] = Header(None)):
+    """In-app account deletion (Google Play requirement): removes the user's profile,
+    sessions, transactions and budgets."""
+    user = await get_current_user(authorization)
+    uid = user.user_id
+    await db.transactions.delete_many({"user_id": uid})
+    await db.budgets.delete_many({"user_id": uid})
+    await db.user_sessions.delete_many({"user_id": uid})
+    await db.users.delete_one({"user_id": uid})
+    return {"ok": True}
+
 # ================= PARSER =================
 CATEGORY_KEYWORDS = {
     "Food & Dining": ["swiggy", "zomato", "restaurant", "cafe", "starbucks", "dominos", "mcd", "kfc", "food"],
