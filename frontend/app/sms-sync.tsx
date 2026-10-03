@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,6 +21,7 @@ export default function SmsSyncScreen() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SmsSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [showDisclosure, setShowDisclosure] = useState(false);
 
   const requestPerm = async () => {
     if (Platform.OS !== 'android') {
@@ -94,7 +95,7 @@ export default function SmsSyncScreen() {
 
         <Pressable
           testID="request-sms-permission-btn"
-          onPress={requestPerm}
+          onPress={() => setShowDisclosure(true)}
           disabled={busy}
           style={[styles.primaryBtn, busy && { opacity: 0.5 }]}>
           {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Request SMS permission</Text>}
@@ -156,6 +157,46 @@ export default function SmsSyncScreen() {
           </Pressable>
         </View>
       </ScrollView>
+
+      {/* Google Play Prominent Disclosure: shown before the runtime permission prompt,
+          with an explicit Agree / No thanks choice. */}
+      <Modal visible={showDisclosure} transparent animationType="fade" onRequestClose={() => setShowDisclosure(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard} testID="sms-disclosure">
+            <Text style={styles.modalTitle}>Allow Moneta to read your SMS?</Text>
+            <ScrollView style={{ maxHeight: 340 }}>
+              <Text style={styles.modalBody}>
+                Moneta is an expense and budget tracker. To add your spending automatically,
+                it needs to read the SMS messages on your phone, including new messages as they arrive, even when the app is closed.
+              </Text>
+              <Text style={styles.modalBody}>
+                <Text style={styles.modalBold}>How it is used: </Text>
+                your phone first picks out only messages from bank/merchant sender IDs that contain
+                an amount and a debit/credit word. Only those messages are sent to our server, which
+                extracts the amount, merchant and date and adds them as transactions to your budget.
+              </Text>
+              <Text style={styles.modalBody}>
+                <Text style={styles.modalBold}>What is never used: </Text>
+                personal messages, OTPs and promotions are not uploaded or stored. Your SMS data is
+                not sold or shared with third parties or used for advertising.
+              </Text>
+              <Text style={styles.modalBody}>You can stop at any time by revoking the SMS permission in Android settings.</Text>
+            </ScrollView>
+            <Pressable
+              testID="sms-disclosure-agree"
+              style={styles.primaryBtn}
+              onPress={() => { setShowDisclosure(false); requestPerm(); }}>
+              <Text style={styles.primaryBtnText}>Agree and continue</Text>
+            </Pressable>
+            <Pressable
+              testID="sms-disclosure-decline"
+              style={[styles.secondaryBtn, { marginTop: theme.spacing.sm }]}
+              onPress={() => setShowDisclosure(false)}>
+              <Text style={styles.secondaryBtnText}>No thanks</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -185,4 +226,9 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 11, letterSpacing: 1, color: theme.color.onSurfaceTertiary, fontWeight: '700', marginBottom: theme.spacing.sm },
   secondaryBtn: { borderColor: theme.color.borderStrong, borderWidth: 1, paddingVertical: 12, borderRadius: theme.radius.md, alignItems: 'center' },
   secondaryBtnText: { color: theme.color.onSurface, fontWeight: '600', fontSize: 14 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', padding: theme.spacing.lg },
+  modalCard: { backgroundColor: theme.color.surface, borderRadius: theme.radius.md, padding: theme.spacing.lg },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface, marginBottom: theme.spacing.sm },
+  modalBody: { fontSize: 14, color: theme.color.onSurfaceSecondary, lineHeight: 20, marginBottom: theme.spacing.sm },
+  modalBold: { fontWeight: '700', color: theme.color.onSurface },
 });

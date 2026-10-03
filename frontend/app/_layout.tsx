@@ -19,6 +19,12 @@ SplashScreen.preventAutoHideAsync();
 // bundle/entry point, just without mounting an Activity.
 if (Platform.OS === 'android') {
   AppRegistry.registerHeadlessTask('SmsSyncTask', () => async () => {
+    // SMS_RECEIVED fires before the default messaging app has written the message to
+    // the inbox provider, so a sync run immediately would miss it. Wait, then sync,
+    // then sync once more to catch a slow write.
+    await new Promise((r) => setTimeout(r, 4000));
+    await runSmsSync();
+    await new Promise((r) => setTimeout(r, 6000));
     await runSmsSync();
   });
 }

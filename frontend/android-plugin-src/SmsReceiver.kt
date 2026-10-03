@@ -14,9 +14,15 @@ import com.facebook.react.HeadlessJsTaskService
 class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == "android.provider.Telephony.SMS_RECEIVED") {
-            val serviceIntent = Intent(context, SmsHeadlessTaskService::class.java)
-            context.startService(serviceIntent)
-            HeadlessJsTaskService.acquireWakeLockNow(context)
+            // Never let a failure here crash the app process — worst case this SMS is
+            // picked up by the next manual/app-open sync.
+            try {
+                val serviceIntent = Intent(context, SmsHeadlessTaskService::class.java)
+                context.startService(serviceIntent)
+                HeadlessJsTaskService.acquireWakeLockNow(context)
+            } catch (e: Exception) {
+                android.util.Log.w("SmsReceiver", "could not start SMS sync task", e)
+            }
         }
     }
 }

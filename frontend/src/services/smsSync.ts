@@ -37,7 +37,9 @@ export async function runSmsSync(): Promise<SmsSyncResult> {
   if (!token) return empty; // not signed in — nothing to do
 
   const lastSync = await storage.getItem<number>(LAST_SYNC_KEY, 0);
-  const messages = await listInboxSince(lastSync ?? 0);
+  // +1: minDate is inclusive, so without it the newest already-synced SMS is re-sent
+  // every run and shows up as a duplicate transaction.
+  const messages = await listInboxSince((lastSync ?? 0) + 1);
   const candidates = messages.filter((m) => looksLikeSenderId(m.address));
 
   // Content filtering happens here, on-device, before anything is sent over the
