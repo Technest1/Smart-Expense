@@ -51,6 +51,7 @@
         }
       ],
       "@react-native-google-signin/google-signin",
+      ["expo-notifications", { "color": "#2E4F3D" }],
       "./plugins/withSmsReceiver.js",
       "./plugins/withReleaseSigning.js"
     ],

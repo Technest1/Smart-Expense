@@ -1,16 +1,19 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal, Switch, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/src/api/client';
 import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR } from '@/src/theme';
+import {
+  ReminderSettings, getReminderSettings, saveReminderSettings, ensureNotificationPermission, syncReminders,
+} from '@/src/services/reminders';
 
 type Pattern = {
   id: string; merchant: string; category: string; account: string | null; frequency: string;
   amount_type: 'FIXED' | 'VARIABLE'; expected_amount: number; amount_min: number; amount_max: number;
   next_date: string; confidence: 'HIGH' | 'MEDIUM' | 'LOW'; status: string; occurrence_count: number;
-  history: { date: string; amount: number }[];
+  history: { date: string; amount: number }[]; notify?: boolean;
 };
 type Upcoming = {
   recurring_id: string; merchant: string; category: string; account: string | null;
@@ -27,6 +30,8 @@ const PER: Record<string, string> = {
 };
 const fmtDate = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+const FREQS = ['WEEKLY', 'FORTNIGHTLY', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY'];
+const CATS = ['Food & Dining', 'Transport', 'Shopping', 'Groceries', 'Entertainment', 'Bills & Utilities', 'Health', 'Transfers', 'Uncategorized'];
 const amountText = (a: number, type: string) => (type === 'VARIABLE' ? '~' : '') + formatINR(a);
 
 export default function RecurringScreen() {
@@ -37,6 +42,14 @@ export default function RecurringScreen() {
   const [patterns, setPatterns] = useState<Pattern[]>([]);
   const [days, setDays] = useState(30);
   const [sheet, setSheet] = useState<Pattern | null>(null);
+  const [rem, setRem] = useState<ReminderSettings>({ enabled: false, daysBefore: 3 });
+  const [editing, setEditing] = useState(false);
+  const [fAmount, setFAmount] = useState('');
+  const [fCat, setFCat] = useState('');
+  const [fFreq, setFFreq] = useState('');
+  const [fDate, setFDate] = useState('');
+  const [fNotify, setFNotify] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async (d: number) => {
     try {
@@ -46,10 +59,12 @@ export default function RecurringScreen() {
         apiFetch<{ items: Pattern[] }>('/recurring-payments'),
       ]);
       setSummary(s); setUpcoming(u.items); setPatterns(p.items);
+      syncReminders().catch(() => {});
     } catch {}
   }, []);
 
   useFocusEffect(useCallback(() => {
+    getReminderSettings().then(setRem).catch(() => {});
     setLoading(true);
     load(days).finally(() => setLoading(false));
   }, [load, days]));
@@ -74,6 +89,44 @@ export default function RecurringScreen() {
         },
       },
     ]);
+
+  const changeReminders = async (next: ReminderSettings) => {
+    if (next.enabled && !(await ensureNotificationPermission())) {
+      Alert.alert('Notifications are off', 'Allow notifications for Moneta in Android settings to get payment reminders.');
+      return;
+    }
+    setRem(next);
+    await saveReminderSettings(next);
+    syncReminders().catch(() => {});
+  };
+
+  const openEdit = (p: Pattern) => {
+    setFAmount(String(p.expected_amount)); setFCat(p.category); setFFreq(p.frequency);
+    setFDate(p.next_date); setFNotify(p.notify !== false); setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    if (!sheet) return;
+    const amt = parseFloat(fAmount);
+    if (!(amt > 0)) return Alert.alert('Enter a valid amount');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fDate.trim())) return Alert.alert('Date must look like 2026-11-12');
+    const body: Record<string, any> = {};
+    if (amt !== sheet.expected_amount) body.expected_amount = amt;
+    if (fCat !== sheet.category) body.category = fCat;
+    if (fFreq !== sheet.frequency) body.frequency = fFreq;
+    if (fDate.trim() !== sheet.next_date) body.next_date = fDate.trim();
+    if (fNotify !== (sheet.notify !== false)) body.notify = fNotify;
+    setSaving(true);
+    try {
+      if (Object.keys(body).length) await apiFetch(`/recurring-payments/${sheet.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      setEditing(false); setSheet(null);
+      await load(days);
+    } catch (e: any) {
+      Alert.alert('Could not save', e?.message || 'Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const active = patterns.filter(p => p.status === 'ACTIVE');
   const potential = patterns.filter(p => p.status === 'DETECTED');
@@ -127,6 +180,27 @@ export default function RecurringScreen() {
           </View>
           <Text style={styles.note}>Estimates based on your past payments. Not a guarantee.</Text>
 
+          <View style={styles.remCard} testID="reminders-card">
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>Payment reminders</Text>
+                <Text style={styles.rowSub}>A notification before each expected payment</Text>
+              </View>
+              <Switch testID="reminders-switch" value={rem.enabled} onValueChange={(v) => changeReminders({ ...rem, enabled: v })}
+                trackColor={{ true: theme.color.brand }} />
+            </View>
+            {rem.enabled && (
+              <View style={[styles.chips, { marginTop: theme.spacing.md, marginBottom: 0 }]}>
+                {([1, 3, 7] as const).map((d) => (
+                  <Pressable key={d} testID={`reminder-days-${d}`} onPress={() => changeReminders({ ...rem, daysBefore: d })}
+                    style={[styles.chip, rem.daysBefore === d && styles.chipOn]}>
+                    <Text style={[styles.chipText, rem.daysBefore === d && { color: '#fff' }]}>{d} day{d > 1 ? 's' : ''} before</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
+
           <Text style={styles.section}>UPCOMING</Text>
           <View style={styles.chips}>
             {[7, 30, 90].map(d => (
@@ -177,8 +251,8 @@ export default function RecurringScreen() {
         </ScrollView>
       )}
 
-      <Modal visible={!!sheet} transparent animationType="slide" onRequestClose={() => setSheet(null)}>
-        <Pressable style={styles.backdrop} onPress={() => setSheet(null)}>
+      <Modal visible={!!sheet} transparent animationType="slide" onRequestClose={() => { setEditing(false); setSheet(null); }}>
+        <Pressable style={styles.backdrop} onPress={() => { setEditing(false); setSheet(null); }}>
           {sheet && (
             <Pressable style={styles.sheet} testID="recurring-sheet">
               <Text style={styles.sheetTitle}>{sheet.merchant}</Text>
@@ -196,7 +270,40 @@ export default function RecurringScreen() {
                   <Text style={styles.rowSub}>{formatINR(h.amount)}</Text>
                 </View>
               ))}
+              {editing ? (
+                <ScrollView style={{ maxHeight: 460 }} keyboardShouldPersistTaps="handled">
+                  <Text style={styles.fieldLabel}>Expected amount (₹)</Text>
+                  <TextInput testID="edit-amount" value={fAmount} onChangeText={setFAmount} keyboardType="numeric" style={styles.input} />
+                  <Text style={styles.fieldLabel}>Next payment date (YYYY-MM-DD)</Text>
+                  <TextInput testID="edit-date" value={fDate} onChangeText={setFDate} autoCapitalize="none" style={styles.input} />
+                  <Text style={styles.fieldLabel}>How often</Text>
+                  <View style={styles.wrap}>
+                    {FREQS.map((f) => (
+                      <Pressable key={f} testID={`edit-freq-${f}`} onPress={() => setFFreq(f)} style={[styles.chip, fFreq === f && styles.chipOn]}>
+                        <Text style={[styles.chipText, fFreq === f && { color: '#fff' }]}>{f === 'HALF_YEARLY' ? 'Half-yearly' : f[0] + f.slice(1).toLowerCase()}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={styles.fieldLabel}>Category</Text>
+                  <View style={styles.wrap}>
+                    {CATS.map((c) => (
+                      <Pressable key={c} testID={`edit-cat-${c}`} onPress={() => setFCat(c)} style={[styles.chip, fCat === c && styles.chipOn]}>
+                        <Text style={[styles.chipText, fCat === c && { color: '#fff' }]}>{c}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: theme.spacing.md }}>
+                    <Text style={[styles.rowTitle, { flex: 1 }]}>Remind me about this payment</Text>
+                    <Switch testID="edit-notify" value={fNotify} onValueChange={setFNotify} trackColor={{ true: theme.color.brand }} />
+                  </View>
+                  <View style={{ marginTop: theme.spacing.md, gap: 8 }}>
+                    <Btn id="save-edit" label={saving ? 'Saving…' : 'Save changes'} primary onPress={saveEdit} />
+                    <Btn id="cancel-edit" label="Cancel" onPress={() => setEditing(false)} />
+                  </View>
+                </ScrollView>
+              ) : (
               <View style={{ marginTop: theme.spacing.md, gap: 8 }}>
+                {sheet.status !== 'ENDED' && <Btn id="edit" label="Edit details" onPress={() => openEdit(sheet)} />}
                 {sheet.status === 'DETECTED' && <Btn id="confirm" label="Confirm recurring" primary onPress={() => act(sheet, 'confirm')} />}
                 {sheet.status === 'ACTIVE' && <Btn id="pause" label="Pause tracking" onPress={() => act(sheet, 'pause')} />}
                 {sheet.status === 'PAUSED' && <Btn id="resume" label="Resume tracking" primary onPress={() => act(sheet, 'resume')} />}
@@ -204,6 +311,7 @@ export default function RecurringScreen() {
                 {sheet.status !== 'ENDED' && <Btn id="dismiss" label="Not recurring" danger onPress={() => act(sheet, 'dismiss')} />}
                 <Btn id="close" label="Close" onPress={() => setSheet(null)} />
               </View>
+              )}
             </Pressable>
           )}
         </Pressable>
@@ -251,5 +359,9 @@ const styles = StyleSheet.create({
   sheetTitle: { fontSize: 20, fontWeight: '700', color: theme.color.onSurface, marginBottom: 4 },
   histRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
   btn: { borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, paddingVertical: 13, alignItems: 'center' },
+  remCard: { marginTop: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.color.border },
+  fieldLabel: { fontSize: 12, fontWeight: '700', color: theme.color.onSurfaceTertiary, marginTop: theme.spacing.md, marginBottom: 6 },
+  input: { borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: theme.color.onSurface, backgroundColor: theme.color.surfaceSecondary },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   btnText: { fontSize: 15, fontWeight: '600', color: theme.color.onSurface },
 });
