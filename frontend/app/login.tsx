@@ -1,13 +1,31 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image, Dimensions, Platform, TextInput } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image, Platform, TextInput, ScrollView, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GoogleSignin, isSuccessResponse } from '@react-native-google-signin/google-signin';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { theme } from '@/src/theme';
 
-const { height } = Dimensions.get('window');
+const PRIVACY_URL = 'https://technest1.github.io/Smart-Expense/privacy.html';
+
+const FEATURES: { icon: keyof typeof Ionicons.glyphMap; title: string; sub: string }[] = [
+  { icon: 'chatbubble-ellipses-outline', title: 'Reads your bank SMS', sub: 'Expenses appear on their own, no typing' },
+  { icon: 'calendar-outline', title: 'Budgets & reminders', sub: 'See what is due before it leaves your account' },
+  { icon: 'shield-checkmark-outline', title: 'Private by design', sub: 'Filtered on your phone; OTPs never leave it' },
+];
+
+function GoogleG() {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 48 48">
+      <Path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z" />
+      <Path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z" />
+      <Path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z" />
+      <Path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z" />
+    </Svg>
+  );
+}
 
 const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
 
@@ -141,117 +159,120 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.root} testID="login-screen">
-      <View style={styles.hero}>
-        <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1483959651481-dc75b89291f1?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDF8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBnZW9tZXRyaWMlMjBiYWNrZ3JvdW5kJTIwdGV4dHVyZXxlbnwwfHx8fDE3ODQ3NzQyOTZ8MA&ixlib=rb-4.1.0&q=85' }}
-          style={styles.heroImage}
-          resizeMode="cover"
-        />
-        <LinearGradient
-          colors={['rgba(26,28,27,0.35)', 'rgba(26,28,27,0.85)']}
-          style={StyleSheet.absoluteFill}
-        />
-        <SafeAreaView style={styles.heroContent} edges={['top']}>
-          <Pressable style={styles.brandBadge} onPress={onBadgeTap}>
-            <Ionicons name="wallet" size={20} color={theme.color.brand} />
-          </Pressable>
-          <Text style={styles.brand}>Moneta</Text>
-          <Text style={styles.tagline}>
-            Never miss an expense again; your budget updates itself.
-          </Text>
-        </SafeAreaView>
-      </View>
+      <LinearGradient colors={['#17301F', '#2E4F3D', '#3F6A52']} start={{ x: 0.1, y: 0 }} end={{ x: 0.9, y: 1 }} style={StyleSheet.absoluteFill} />
+      <View style={styles.blobA} />
+      <View style={styles.blobB} />
 
-      <SafeAreaView edges={['bottom']} style={styles.bottomCard}>
-        <Text style={styles.cardTitle}>Sign in to continue</Text>
-        <Text style={styles.cardSub}>
-          We use your Google account only to identify you. Your data stays private.
-        </Text>
-
-        <Pressable
-          testID="google-sign-in-button"
-          onPress={login}
-          disabled={busy}
-          style={({ pressed }) => [styles.googleBtn, pressed && { opacity: 0.85 }]}>
-          {busy ? (
-            <ActivityIndicator color={theme.color.onSurface} />
-          ) : (
-            <>
-              <View style={styles.googleG}>
-                <Text style={styles.googleGText}>G</Text>
-              </View>
-              <Text style={styles.googleBtnText}>Continue with Google</Text>
-            </>
-          )}
-        </Pressable>
-
-        {err ? <Text style={styles.err} testID="login-error">{err}</Text> : null}
-
-        {showReviewerInput && (
-          <View style={{ marginTop: theme.spacing.md, gap: 8 }}>
-            <TextInput
-              testID="reviewer-code-input"
-              value={reviewerCode}
-              onChangeText={setReviewerCode}
-              placeholder="Reviewer access code"
-              secureTextEntry
-              autoCapitalize="none"
-              style={{ borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, padding: 12, color: theme.color.onSurface }}
-              placeholderTextColor={theme.color.onSurfaceTertiary}
-            />
-            <Pressable
-              testID="reviewer-code-submit"
-              onPress={submitReviewerCode}
-              disabled={busy || !reviewerCode.trim()}
-              style={[styles.googleBtn, { marginTop: 0 }, (busy || !reviewerCode.trim()) && { opacity: 0.5 }]}>
-              <Text style={styles.googleBtnText}>Continue</Text>
+      <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+        <ScrollView contentContainerStyle={styles.scroll} bounces={false} showsVerticalScrollIndicator={false}>
+          <View style={styles.top}>
+            {/* Tapping the logo 5x reveals the Play Store reviewer code field (see above). */}
+            <Pressable onPress={onBadgeTap} style={styles.logoWrap}>
+              <Image source={require('@/assets/images/adaptive-icon.png')} style={styles.logo} resizeMode="contain" />
             </Pressable>
-          </View>
-        )}
+            <Text style={styles.brand}>Moneta</Text>
+            <Text style={styles.kicker}>AUTO EXPENSE TRACKER</Text>
 
-        <Text style={styles.footNote}>
-          By continuing, you agree to keep track of your finances responsibly.
-        </Text>
+            <Text style={styles.headline}>Know where your money goes, without lifting a finger.</Text>
+
+            <View style={styles.features}>
+              {FEATURES.map((f) => (
+                <View key={f.title} style={styles.featureRow}>
+                  <View style={styles.featureIcon}>
+                    <Ionicons name={f.icon} size={20} color="#DCEBE2" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.featureTitle}>{f.title}</Text>
+                    <Text style={styles.featureSub}>{f.sub}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Get started</Text>
+            <Text style={styles.cardSub}>Sign in with Google. We only use it to identify you.</Text>
+
+            <Pressable
+              testID="google-sign-in-button"
+              onPress={login}
+              disabled={busy}
+              style={({ pressed }) => [styles.googleBtn, pressed && { opacity: 0.85 }]}>
+              {busy ? (
+                <ActivityIndicator color={theme.color.onSurface} />
+              ) : (
+                <>
+                  <GoogleG />
+                  <Text style={styles.googleBtnText}>Continue with Google</Text>
+                </>
+              )}
+            </Pressable>
+
+            {err ? <Text style={styles.err} testID="login-error">{err}</Text> : null}
+
+            {showReviewerInput && (
+              <View style={{ marginTop: theme.spacing.md, gap: 8 }}>
+                <TextInput
+                  testID="reviewer-code-input"
+                  value={reviewerCode}
+                  onChangeText={setReviewerCode}
+                  placeholder="Reviewer access code"
+                  secureTextEntry
+                  autoCapitalize="none"
+                  style={styles.reviewerInput}
+                  placeholderTextColor={theme.color.onSurfaceTertiary}
+                />
+                <Pressable
+                  testID="reviewer-code-submit"
+                  onPress={submitReviewerCode}
+                  disabled={busy || !reviewerCode.trim()}
+                  style={[styles.googleBtn, { marginTop: 0 }, (busy || !reviewerCode.trim()) && { opacity: 0.5 }]}>
+                  <Text style={styles.googleBtnText}>Continue</Text>
+                </Pressable>
+              </View>
+            )}
+
+            <Text style={styles.footNote}>
+              By continuing you agree to our{' '}
+              <Text style={styles.link} onPress={() => Linking.openURL(PRIVACY_URL)}>Privacy Policy</Text>.
+            </Text>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: theme.color.surface },
-  hero: { height: height * 0.55, position: 'relative' },
-  heroImage: { width: '100%', height: '100%' },
-  heroContent: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, paddingHorizontal: theme.spacing.xl, paddingTop: theme.spacing.xl, justifyContent: 'flex-end', paddingBottom: theme.spacing.xl },
-  brandBadge: { width: 44, height: 44, borderRadius: 12, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', marginBottom: theme.spacing.lg },
-  brand: { fontSize: 34, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
-  tagline: { fontSize: 16, color: 'rgba(255,255,255,0.85)', marginTop: theme.spacing.sm, lineHeight: 22 },
-  bottomCard: {
-    flex: 1,
-    backgroundColor: theme.color.surfaceSecondary,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    marginTop: -24,
-    paddingHorizontal: theme.spacing.xl,
-    paddingTop: theme.spacing.xl,
-    justifyContent: 'space-between',
+  root: { flex: 1, backgroundColor: '#17301F' },
+  blobA: { position: 'absolute', width: 340, height: 340, borderRadius: 170, backgroundColor: 'rgba(255,255,255,0.05)', top: -110, right: -130 },
+  blobB: { position: 'absolute', width: 260, height: 260, borderRadius: 130, backgroundColor: 'rgba(255,255,255,0.04)', top: 250, left: -140 },
+  scroll: { flexGrow: 1, justifyContent: 'space-between' },
+  top: { paddingHorizontal: 28, paddingTop: 28 },
+  logoWrap: { width: 76, height: 76, alignItems: 'center', justifyContent: 'center', marginLeft: -6 },
+  logo: { width: 76, height: 76 },
+  brand: { fontSize: 30, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.5, marginTop: 6 },
+  kicker: { fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.6)', letterSpacing: 2.2, marginTop: 2 },
+  headline: { fontSize: 31, lineHeight: 38, fontWeight: '800', color: '#FFFFFF', letterSpacing: -0.6, marginTop: 36 },
+  features: { marginTop: 30, gap: 18 },
+  featureRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  featureIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  featureTitle: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  featureSub: { fontSize: 13, color: 'rgba(255,255,255,0.68)', marginTop: 2, lineHeight: 18 },
+  card: {
+    backgroundColor: '#FFFFFF', borderTopLeftRadius: 30, borderTopRightRadius: 30,
+    paddingHorizontal: 24, paddingTop: 26, paddingBottom: 22, marginTop: 32,
   },
-  cardTitle: { fontSize: 22, fontWeight: '700', color: theme.color.onSurface },
-  cardSub: { fontSize: 14, color: theme.color.onSurfaceTertiary, marginTop: theme.spacing.xs, lineHeight: 20 },
+  cardTitle: { fontSize: 20, fontWeight: '800', color: theme.color.onSurface },
+  cardSub: { fontSize: 14, color: theme.color.onSurfaceTertiary, marginTop: 4, lineHeight: 20 },
   googleBtn: {
-    marginTop: theme.spacing.xl,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    height: 54,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: theme.color.borderStrong,
-    backgroundColor: theme.color.surfaceSecondary,
+    marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12,
+    height: 56, borderRadius: 28, borderWidth: 1, borderColor: '#D5D8D4', backgroundColor: '#FFFFFF',
   },
-  googleG: { width: 26, height: 26, borderRadius: 13, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.color.border },
-  googleGText: { color: '#4285F4', fontSize: 18, fontWeight: '700' },
   googleBtnText: { fontSize: 16, color: theme.color.onSurface, fontWeight: '600' },
+  reviewerInput: { borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, padding: 12, color: theme.color.onSurface },
   err: { color: theme.color.error, marginTop: theme.spacing.md, textAlign: 'center' },
-  footNote: { fontSize: 12, color: theme.color.onSurfaceTertiary, textAlign: 'center', marginBottom: theme.spacing.md },
+  footNote: { fontSize: 12, color: theme.color.onSurfaceTertiary, textAlign: 'center', marginTop: 18, lineHeight: 18 },
+  link: { color: theme.color.brand, fontWeight: '700', textDecorationLine: 'underline' },
 });
