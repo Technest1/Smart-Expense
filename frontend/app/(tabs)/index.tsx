@@ -1,11 +1,13 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, TextInput } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, TextInput, Platform, PermissionsAndroid } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/src/api/client';
 import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR, displayMerchant } from '@/src/theme';
 import { useAuth } from '@/src/contexts/AuthContext';
+import { storage } from '@/src/utils/storage';
+import { runSmsSync } from '@/src/services/smsSync';
 
 type Txn = {
   id: string; amount: number; direction: 'debit' | 'credit'; merchant: string;
@@ -76,10 +78,34 @@ export default function Dashboard() {
     }
   }, [rangeKey, customApplied]);
 
+  // SMS onboarding: Android only lets us read SMS after the user allows it once, so on
+  // first visit (per user) send them to the disclosure + permission screen; if already
+  // allowed, catch up on anything missed while the background task wasn't running.
+  const smsBusy = useRef(false);
+  const smsOnboarding = useCallback(async () => {
+    if (Platform.OS !== 'android' || smsBusy.current) return;
+    smsBusy.current = true;
+    try {
+      if (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS)) {
+        const r = await runSmsSync();
+        if (r.saved > 0) await load();
+        return;
+      }
+      const key = `sms_onboarding_shown_${user?.user_id}`;
+      if (!(await storage.getItem(key, false))) {
+        await storage.setItem(key, true);
+        router.push('/sms-sync?auto=1');
+      }
+    } catch {} finally {
+      smsBusy.current = false;
+    }
+  }, [load, router, user?.user_id]);
+
   useFocusEffect(useCallback(() => {
     setLoading(true);
     load().finally(() => setLoading(false));
-  }, [load]));
+    smsOnboarding();
+  }, [load, smsOnboarding]));
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -259,6 +285,11 @@ export default function Dashboard() {
               style={styles.primaryBtn}>
               {seeding ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Load sample data</Text>}
             </Pressable>
+            {Platform.OS === 'android' && (
+              <Pressable testID="connect-sms-empty-button" onPress={() => router.push('/sms-sync?auto=1')} style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnText}>Connect SMS to start tracking</Text>
+              </Pressable>
+            )}
             <Pressable
               testID="import-empty-button"
               onPress={() => router.push('/import')}

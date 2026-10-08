@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { runSmsSync, SmsSyncResult } from '@/src/services/smsSync';
 import { theme } from '@/src/theme';
@@ -17,11 +17,18 @@ import { theme } from '@/src/theme';
  */
 export default function SmsSyncScreen() {
   const router = useRouter();
+  // ?auto=1: opened by the dashboard's first-run prompt — show the disclosure right away and
+  // head back to the dashboard once the first sync is done.
+  const { auto } = useLocalSearchParams<{ auto?: string }>();
   const [status, setStatus] = useState<'idle' | 'granted' | 'denied' | 'unavailable'>('idle');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SmsSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [showDisclosure, setShowDisclosure] = useState(false);
+
+  useEffect(() => {
+    if (auto === '1' && Platform.OS === 'android') setShowDisclosure(true);
+  }, [auto]);
 
   const requestPerm = async () => {
     if (Platform.OS !== 'android') {
@@ -36,6 +43,12 @@ export default function SmsSyncScreen() {
       ]);
       if (res[PermissionsAndroid.PERMISSIONS.READ_SMS] === PermissionsAndroid.RESULTS.GRANTED) {
         setStatus('granted');
+        if (auto === '1') {
+          setBusy(false);
+          await syncNow();
+          router.replace('/(tabs)');
+          return;
+        }
       } else {
         setStatus('denied');
       }
@@ -191,7 +204,7 @@ export default function SmsSyncScreen() {
             <Pressable
               testID="sms-disclosure-decline"
               style={[styles.secondaryBtn, { marginTop: theme.spacing.sm }]}
-              onPress={() => setShowDisclosure(false)}>
+              onPress={() => { setShowDisclosure(false); if (auto === '1') router.back(); }}>
               <Text style={styles.secondaryBtnText}>No thanks</Text>
             </Pressable>
           </View>
