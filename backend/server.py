@@ -19,7 +19,8 @@ from delete_account import DELETE_ACCOUNT_HTML
 from cryptography.fernet import Fernet
 from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date as date_cls
+import recurring as rec
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -281,6 +282,7 @@ async def delete_account(authorization: Optional[str] = Header(None)):
     await db.transactions.delete_many({"user_id": uid})
     await db.budgets.delete_many({"user_id": uid})
     await db.user_sessions.delete_many({"user_id": uid})
+    await db.recurring_prefs.delete_many({"user_id": uid})
     await db.users.delete_one({"user_id": uid})
     return {"ok": True}
 
@@ -960,6 +962,133 @@ async def analytics_recurring(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     items = await _detect_recurring(user.user_id)
     return {"items": items, "total_monthly": round(sum(x["avg_amount"] for x in items), 2)}
+
+
+# ================= RECURRING PAYMENTS & UPCOMING EXPENSES =================
+# Detection/projection live in recurring.py (pure). Only user decisions are stored, in
+# `recurring_prefs` {user_id, id, status, edits..., skipped:[iso dates]}.
+async def _recurring_patterns(user_id: str) -> list:
+    now = datetime.now(timezone.utc)
+    rows = await db.transactions.find(
+        {"user_id": user_id, "is_duplicate": False, "direction": "debit",
+         "txn_date": {"$gte": now - timedelta(days=rec.LOOKBACK_DAYS)}},
+        {"_id": 0, "id": 1, "merchant": 1, "amount": 1, "txn_date": 1, "account": 1, "category": 1},
+    ).to_list(20000)
+    txns = []
+    for r in rows:
+        td = r["txn_date"]
+        if isinstance(td, str):
+            try: td = datetime.fromisoformat(td)
+            except Exception: continue
+        if td.tzinfo is None:
+            td = td.replace(tzinfo=timezone.utc)
+        txns.append({**r, "txn_date": td})
+    prefs = {p["id"]: p async for p in db.recurring_prefs.find({"user_id": user_id}, {"_id": 0})}
+    return [rec.apply_prefs(p, prefs.get(p["id"])) for p in rec.detect(user_id, txns, now, _merchant_key)]
+
+def _ser_pattern(p: dict) -> dict:
+    out = {k: v for k, v in p.items() if k != "skipped"}
+    for k in ("last_date", "first_date", "next_date"):
+        out[k] = p[k].isoformat()
+    out["skipped"] = sorted(p["skipped"])
+    return out
+
+async def _get_pattern_or_404(user_id: str, rid: str) -> dict:
+    for p in await _recurring_patterns(user_id):
+        if p["id"] == rid:
+            return p
+    raise HTTPException(status_code=404, detail="Recurring payment not found")
+
+@api_router.get("/recurring-payments")
+async def list_recurring(status: Optional[str] = None, account: Optional[str] = None,
+                         category: Optional[str] = None, frequency: Optional[str] = None,
+                         authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    items = [_ser_pattern(p) for p in await _recurring_patterns(user.user_id)
+             if (not status or p["status"] == status.upper())
+             and (not account or p["account"] == account)
+             and (not category or p["category"] == category)
+             and (not frequency or p["frequency"] == frequency.upper())]
+    items.sort(key=lambda x: x["next_date"])
+    return {"items": items}
+
+@api_router.get("/recurring-payments/{rid}")
+async def recurring_detail(rid: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    p = await _get_pattern_or_404(user.user_id, rid)
+    nxt = rec.project([p], datetime.now(timezone.utc).date(), 400)
+    return {**_ser_pattern(p), "next_upcoming": nxt[0] if nxt else None}
+
+_RECURRING_ACTIONS = {"confirm": "ACTIVE", "resume": "ACTIVE", "dismiss": "DISMISSED",
+                      "pause": "PAUSED", "end": "ENDED"}
+
+@api_router.post("/recurring-payments/{rid}/{action}")
+async def recurring_action(rid: str, action: str, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    if action not in _RECURRING_ACTIONS:
+        raise HTTPException(status_code=404, detail="Unknown action")
+    await _get_pattern_or_404(user.user_id, rid)
+    await db.recurring_prefs.update_one(
+        {"user_id": user.user_id, "id": rid},
+        {"$set": {"status": _RECURRING_ACTIONS[action]}}, upsert=True)
+    return {"ok": True, "status": _RECURRING_ACTIONS[action]}
+
+class RecurringEdit(BaseModel):
+    merchant: Optional[str] = None
+    category: Optional[str] = None
+    frequency: Optional[str] = None
+    expected_amount: Optional[float] = Field(default=None, gt=0)
+    next_date: Optional[str] = None
+    notify: Optional[bool] = None
+
+@api_router.patch("/recurring-payments/{rid}")
+async def recurring_edit(rid: str, payload: RecurringEdit, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    await _get_pattern_or_404(user.user_id, rid)
+    changes = payload.dict(exclude_none=True)
+    if "frequency" in changes:
+        changes["frequency"] = changes["frequency"].upper()
+        if changes["frequency"] not in rec.PERIOD_DAYS:
+            raise HTTPException(status_code=422, detail="Invalid frequency")
+    if "next_date" in changes:
+        try: date_cls.fromisoformat(changes["next_date"])
+        except ValueError: raise HTTPException(status_code=422, detail="next_date must be YYYY-MM-DD")
+    if changes:
+        await db.recurring_prefs.update_one({"user_id": user.user_id, "id": rid},
+                                            {"$set": changes}, upsert=True)
+    return {"ok": True}
+
+async def _upcoming(user_id: str, days: int) -> list:
+    return rec.project(await _recurring_patterns(user_id), datetime.now(timezone.utc).date(), days)
+
+@api_router.get("/upcoming-expenses")
+async def list_upcoming(days: int = 90, category: Optional[str] = None, account: Optional[str] = None,
+                        authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    days = max(1, min(days, 365))
+    items = [u for u in await _upcoming(user.user_id, days)
+             if (not category or u["category"] == category) and (not account or u["account"] == account)]
+    return {"items": items}
+
+@api_router.get("/upcoming-expenses/summary")
+async def upcoming_summary(authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    today = datetime.now(timezone.utc).date()
+    return rec.summarize(await _upcoming(user.user_id, 90), today)
+
+class SkipRequest(BaseModel):
+    recurring_id: str
+    expected_date: str
+
+@api_router.post("/upcoming-expenses/skip")
+async def skip_upcoming(payload: SkipRequest, authorization: Optional[str] = Header(None)):
+    user = await get_current_user(authorization)
+    await _get_pattern_or_404(user.user_id, payload.recurring_id)
+    try: date_cls.fromisoformat(payload.expected_date)
+    except ValueError: raise HTTPException(status_code=422, detail="expected_date must be YYYY-MM-DD")
+    await db.recurring_prefs.update_one({"user_id": user.user_id, "id": payload.recurring_id},
+                                        {"$addToSet": {"skipped": payload.expected_date}}, upsert=True)
+    return {"ok": True}
 
 @api_router.get("/analytics/by-merchant")
 async def analytics_by_merchant(

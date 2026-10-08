@@ -22,6 +22,7 @@ type Dash = {
   budgets?: { id: string; category: string; monthly_limit: number; spent: number; pct: number; over_budget: boolean; near_limit: boolean }[];
   recurring_count?: number;
 };
+type UpcomingSummary = { next_7_days: number; next_30_days: number; next_90_days: number; count_30_days: number };
 type AccountBalance = { account: string; balance: number; as_of: string; bank: string | null };
 
 const BANK_AVATAR_COLORS = ['#2E4F3D', '#4A6FA5', '#8B5B9F', '#C25A3A', '#A87A2B', '#2F7A78'];
@@ -51,6 +52,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [data, setData] = useState<Dash | null>(null);
   const [accounts, setAccounts] = useState<{ items: AccountBalance[]; total: number } | null>(null);
+  const [upcoming, setUpcoming] = useState<UpcomingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [rangeKey, setRangeKey] = useState<string>('month');
@@ -72,6 +74,7 @@ export default function Dashboard() {
       ]);
       setData(d);
       setAccounts(a);
+      apiFetch<UpcomingSummary>('/upcoming-expenses/summary').then(setUpcoming).catch(() => {});
     } catch (e) {
       // ignore
     }
@@ -242,17 +245,23 @@ export default function Dashboard() {
           </Pressable>
         ))}
 
-        {(data?.recurring_count || 0) > 0 && (
+        {((upcoming?.next_90_days || 0) > 0 || (data?.recurring_count || 0) > 0) && (
           <Pressable
             testID="recurring-card"
-            onPress={() => router.push('/(tabs)/analytics')}
+            onPress={() => router.push('/recurring')}
             style={styles.recurCard}>
             <View style={styles.recurIconWrap}>
-              <Ionicons name="repeat" size={18} color={theme.color.brand} />
+              <Ionicons name="calendar" size={18} color={theme.color.brand} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.dupTitle}>{data?.recurring_count} recurring subscription{(data?.recurring_count || 0) > 1 ? 's' : ''}</Text>
-              <Text style={styles.dupSub}>Tap to review your monthly commitments</Text>
+              <Text style={styles.dupTitle}>
+                {(upcoming?.next_30_days || 0) > 0
+                  ? `${formatINR(upcoming!.next_30_days)} expected in the next 30 days`
+                  : `${data?.recurring_count} recurring payment${(data?.recurring_count || 0) > 1 ? 's' : ''}`}
+              </Text>
+              <Text style={styles.dupSub}>
+                {(upcoming?.next_7_days || 0) > 0 ? `${formatINR(upcoming!.next_7_days)} in the next 7 days • ` : ''}Tap to see upcoming & recurring
+              </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.color.brand} />
           </Pressable>
