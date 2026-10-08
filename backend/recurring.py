@@ -28,6 +28,9 @@ PERIOD_DAYS = {"WEEKLY": 7, "FORTNIGHTLY": 14, "MONTHLY": 30, "QUARTERLY": 91,
                "HALF_YEARLY": 182, "YEARLY": 365}
 PERIOD_MONTHS = {"MONTHLY": 1, "QUARTERLY": 3, "HALF_YEARLY": 6, "YEARLY": 12}
 GRACE_DAYS = 5
+# Merchant keys that are really a payment mode / unparsed payee: many different payees share
+# them, so grouping on them would invent patterns. (Found on real SMS: 'Unknown' merged 7 payees.)
+GENERIC_MERCHANTS = {"unknown", "bank", "upi", "neft", "imps", "rtgs", "atm", "cheque", "payment", "transfer"}
 MAX_AMOUNT_SPREAD = 0.75   # (max-min)/median above this is not "variable bill", it's noise
 LOOKBACK_DAYS = 760        # enough for 2 yearly occurrences
 
@@ -68,7 +71,7 @@ def detect(user_id: str, txns: List[dict], now: datetime, merchant_key) -> List[
     groups: Dict[tuple, List[dict]] = {}
     for t in txns:
         key = merchant_key(t.get("merchant", ""))
-        if not key:
+        if not key or key in GENERIC_MERCHANTS:
             continue
         groups.setdefault((t.get("account") or "", key), []).append(t)
 

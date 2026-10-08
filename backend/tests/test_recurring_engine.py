@@ -119,6 +119,12 @@ def test_unconfirmed_only_when_high_confidence_and_edits_stale_out():
     assert stale["next_date"] == date(2026, 10, 12)
 
 
+def test_generic_merchants_never_grouped():
+    rows = [tx("Unknown", 500, date(2026, m, 5)) for m in (6, 7, 8, 9)]
+    rows += [tx("Bank Transfer", 379, date(2026, m, 6)) for m in (6, 7, 8, 9)]
+    assert detect(rows) == []
+
+
 def test_month_end_clamping():
     assert R.add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
     assert R.add_months(date(2026, 11, 30), 3) == date(2027, 2, 28)
