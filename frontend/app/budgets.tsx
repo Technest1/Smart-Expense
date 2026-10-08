@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, TextInput, ActivityIndicator, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -90,9 +91,9 @@ export default function BudgetsScreen() {
                   <Ionicons
                     name={CATEGORY_ICONS[c] || 'ellipsis-horizontal-outline'}
                     size={14}
-                    color={chosenCat === c ? '#fff' : (CATEGORY_COLORS[c] || theme.color.brand)}
+                    color={chosenCat === c ? theme.color.onBrandPrimary : (CATEGORY_COLORS[c] || theme.color.brand)}
                   />
-                  <Text style={[styles.catChipText, chosenCat === c && { color: '#fff' }]}>{c}</Text>
+                  <Text style={[styles.catChipText, chosenCat === c && { color: theme.color.onBrandPrimary }]}>{c}</Text>
                 </Pressable>
               ))}
             </View>
@@ -111,7 +112,7 @@ export default function BudgetsScreen() {
               onPress={save}
               disabled={!chosenCat || !amount || saving}
               style={[styles.primaryBtn, (!chosenCat || !amount || saving) && { opacity: 0.5 }]}>
-              {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Save budget</Text>}
+              {saving ? <ActivityIndicator color={theme.color.onBrandPrimary} /> : <Text style={styles.primaryBtnText}>Save budget</Text>}
             </Pressable>
           </View>
         )}
@@ -182,7 +183,7 @@ const styles = StyleSheet.create({
   catChipText: { fontSize: 12, fontWeight: '600', color: theme.color.onSurfaceSecondary },
   input: { backgroundColor: theme.color.surfaceTertiary, padding: theme.spacing.md, borderRadius: theme.radius.md, fontSize: 16, color: theme.color.onSurface },
   primaryBtn: { marginTop: theme.spacing.lg, backgroundColor: theme.color.brand, paddingVertical: 14, borderRadius: theme.radius.md, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  primaryBtnText: { color: theme.color.onBrandPrimary, fontWeight: '700', fontSize: 15 },
   empty: { alignItems: 'center', paddingHorizontal: theme.spacing.xl, paddingTop: theme.spacing['3xl'] },
   emptyIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center', marginBottom: theme.spacing.lg },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface },

@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal, Switch, TextInput } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal, Switch } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -194,7 +195,7 @@ export default function RecurringScreen() {
                 {([1, 3, 7] as const).map((d) => (
                   <Pressable key={d} testID={`reminder-days-${d}`} onPress={() => changeReminders({ ...rem, daysBefore: d })}
                     style={[styles.chip, rem.daysBefore === d && styles.chipOn]}>
-                    <Text style={[styles.chipText, rem.daysBefore === d && { color: '#fff' }]}>{d} day{d > 1 ? 's' : ''} before</Text>
+                    <Text style={[styles.chipText, rem.daysBefore === d && { color: theme.color.onBrandPrimary }]}>{d} day{d > 1 ? 's' : ''} before</Text>
                   </Pressable>
                 ))}
               </View>
@@ -205,7 +206,7 @@ export default function RecurringScreen() {
           <View style={styles.chips}>
             {[7, 30, 90].map(d => (
               <Pressable key={d} testID={`upcoming-range-${d}`} onPress={() => setDays(d)} style={[styles.chip, days === d && styles.chipOn]}>
-                <Text style={[styles.chipText, days === d && { color: '#fff' }]}>{d} days</Text>
+                <Text style={[styles.chipText, days === d && { color: theme.color.onBrandPrimary }]}>{d} days</Text>
               </Pressable>
             ))}
           </View>
@@ -280,7 +281,7 @@ export default function RecurringScreen() {
                   <View style={styles.wrap}>
                     {FREQS.map((f) => (
                       <Pressable key={f} testID={`edit-freq-${f}`} onPress={() => setFFreq(f)} style={[styles.chip, fFreq === f && styles.chipOn]}>
-                        <Text style={[styles.chipText, fFreq === f && { color: '#fff' }]}>{f === 'HALF_YEARLY' ? 'Half-yearly' : f[0] + f.slice(1).toLowerCase()}</Text>
+                        <Text style={[styles.chipText, fFreq === f && { color: theme.color.onBrandPrimary }]}>{f === 'HALF_YEARLY' ? 'Half-yearly' : f[0] + f.slice(1).toLowerCase()}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -288,7 +289,7 @@ export default function RecurringScreen() {
                   <View style={styles.wrap}>
                     {CATS.map((c) => (
                       <Pressable key={c} testID={`edit-cat-${c}`} onPress={() => setFCat(c)} style={[styles.chip, fCat === c && styles.chipOn]}>
-                        <Text style={[styles.chipText, fCat === c && { color: '#fff' }]}>{c}</Text>
+                        <Text style={[styles.chipText, fCat === c && { color: theme.color.onBrandPrimary }]}>{c}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -324,7 +325,7 @@ function Btn({ id, label, onPress, primary, danger }: { id: string; label: strin
   return (
     <Pressable testID={`recurring-${id}`} onPress={onPress}
       style={[styles.btn, primary && { backgroundColor: theme.color.brand, borderColor: theme.color.brand }]}>
-      <Text style={[styles.btnText, primary && { color: '#fff' }, danger && { color: theme.color.error }]}>{label}</Text>
+      <Text style={[styles.btnText, primary && { color: theme.color.onBrandPrimary }, danger && { color: theme.color.error }]}>{label}</Text>
     </Pressable>
   );
 }

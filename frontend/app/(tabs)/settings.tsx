@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, Image, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, Image, ScrollView, Alert } from 'react-native';
+import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -77,7 +78,7 @@ export default function Settings() {
           <View style={styles.divider} />
 
           <Pressable testID="sms-sync-btn" style={styles.groupRow} onPress={() => router.push('/sms-sync')}>
-            <View style={[styles.rowIcon, { backgroundColor: '#EFF0EC' }]}>
+            <View style={[styles.rowIcon, { backgroundColor: theme.color.surfaceTertiary }]}>
               <Ionicons name="chatbubble-ellipses-outline" size={18} color={theme.color.onSurfaceSecondary} />
             </View>
             <View style={{ flex: 1 }}>
@@ -90,7 +91,7 @@ export default function Settings() {
           <View style={styles.divider} />
 
           <View style={styles.groupRow}>
-            <View style={[styles.rowIcon, { backgroundColor: '#EFF0EC' }]}>
+            <View style={[styles.rowIcon, { backgroundColor: theme.color.surfaceTertiary }]}>
               <Ionicons name="mail-outline" size={18} color={theme.color.onSurfaceSecondary} />
             </View>
             <View style={{ flex: 1 }}>
@@ -159,7 +160,7 @@ const styles = StyleSheet.create({
   profileCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, padding: theme.spacing.lg, borderRadius: theme.radius.md },
   avatar: { width: 52, height: 52, borderRadius: 26 },
   avatarFallback: { backgroundColor: theme.color.brand, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: '#fff', fontSize: 20, fontWeight: '700' },
+  avatarText: { color: theme.color.onBrandPrimary, fontSize: 20, fontWeight: '700' },
   profileName: { fontSize: 16, fontWeight: '700', color: theme.color.onSurface },
   profileEmail: { fontSize: 13, color: theme.color.onSurfaceTertiary, marginTop: 2 },
   sectionLabel: { fontSize: 11, letterSpacing: 1, color: theme.color.onSurfaceTertiary, fontWeight: '700', marginHorizontal: theme.spacing.xl, marginTop: theme.spacing.xl, marginBottom: theme.spacing.sm },
@@ -171,6 +172,6 @@ const styles = StyleSheet.create({
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.color.divider, marginLeft: 60 },
   pillMuted: { backgroundColor: theme.color.surfaceTertiary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
   pillMutedText: { fontSize: 11, color: theme.color.onSurfaceTertiary, fontWeight: '700' },
-  logoutBtn: { marginTop: theme.spacing.xl, marginHorizontal: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: theme.radius.md, borderWidth: 1, borderColor: '#F1D8D8' },
+  logoutBtn: { marginTop: theme.spacing.xl, marginHorizontal: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14, borderRadius: theme.radius.md, borderWidth: 1, borderColor: 'rgba(255,123,123,0.3)' },
   logoutText: { color: theme.color.error, fontSize: 15, fontWeight: '700' },
 });

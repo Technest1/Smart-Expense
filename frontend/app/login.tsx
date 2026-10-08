@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Image, Platform, TextInput, ScrollView, Linking, Animated, Easing } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator, Image, Platform, ScrollView, Linking, Animated, Easing } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GoogleSignin, isSuccessResponse } from '@react-native-google-signin/google-signin';
 import { Ionicons } from '@expo/vector-icons';

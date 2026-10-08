@@ -1,8 +1,10 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, TextInput, Platform, PermissionsAndroid } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, Platform, PermissionsAndroid } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { apiFetch } from '@/src/api/client';
 import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR, displayMerchant } from '@/src/theme';
 import { useAuth } from '@/src/contexts/AuthContext';
@@ -168,7 +170,10 @@ export default function Dashboard() {
           ))}
         </ScrollView>
 
-        <View style={styles.balanceCard}>
+        <LinearGradient colors={['#1F7352', '#124232', '#0B261C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCard}>
+          {[1, 0.78, 0.58, 0.4].map((k) => (
+            <View key={k} pointerEvents="none" style={[styles.balanceGlow, { width: 230 * k, height: 230 * k, borderRadius: 115 * k, top: -80 + (230 - 230 * k) / 2, right: -60 + (230 - 230 * k) / 2, backgroundColor: 'rgba(91,240,168,0.06)' }]} />
+          ))}
           <Text style={styles.balanceLabel}>SPENT · {(currentLabel || '').toUpperCase()}</Text>
           <Text style={styles.balanceAmount} testID="month-spend">
             {formatINR(data?.month_spend || 0)}
@@ -183,7 +188,7 @@ export default function Dashboard() {
               <Text style={styles.pillText}>{data?.total_transactions || 0} txns</Text>
             </View>
           </View>
-        </View>
+        </LinearGradient>
 
         {(accounts?.items?.length || 0) > 0 && (
           <View style={styles.acctSection}>
@@ -229,8 +234,8 @@ export default function Dashboard() {
             key={b.id}
             testID={`budget-alert-${b.category}`}
             onPress={() => router.push('/budgets')}
-            style={[styles.dupBanner, b.over_budget && { backgroundColor: '#FBE9E9', borderColor: '#F1CFCF' }]}>
-            <View style={[styles.dupIcon, b.over_budget && { backgroundColor: '#F5D6D6' }]}>
+            style={[styles.dupBanner, b.over_budget && { backgroundColor: theme.color.errorSurface, borderColor: theme.color.errorBorder }]}>
+            <View style={[styles.dupIcon, b.over_budget && { backgroundColor: 'rgba(255,123,123,0.2)' }]}>
               <Ionicons name={b.over_budget ? 'flame' : 'trending-up'} size={18} color={b.over_budget ? theme.color.error : theme.color.warning} />
             </View>
             <View style={{ flex: 1 }}>
@@ -436,22 +441,25 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.color.surfaceTertiary, alignItems: 'center', justifyContent: 'center' },
   balanceCard: {
     marginHorizontal: theme.spacing.lg,
-    backgroundColor: theme.color.surfaceInverse,
     borderRadius: theme.radius.lg,
     padding: theme.spacing.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(91,240,168,0.25)',
   },
+  balanceGlow: { position: 'absolute', width: 210, height: 210, borderRadius: 105, top: -80, right: -60, backgroundColor: 'rgba(91,240,168,0.16)' },
   balanceLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
-  balanceAmount: { color: '#fff', fontSize: 40, fontWeight: '700', marginTop: theme.spacing.sm, letterSpacing: -1 },
+  balanceAmount: { color: '#fff', fontSize: 44, fontWeight: '700', marginTop: theme.spacing.sm, letterSpacing: -1 },
   balanceRow: { flexDirection: 'row', gap: 8, marginTop: theme.spacing.lg, flexWrap: 'wrap' },
   balancePill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
   pillText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   dupBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
-    backgroundColor: '#FDF6E6', borderRadius: theme.radius.md, padding: theme.spacing.md,
-    borderWidth: 1, borderColor: '#F3E1B2',
+    backgroundColor: theme.color.warningSurface, borderRadius: theme.radius.md, padding: theme.spacing.md,
+    borderWidth: 1, borderColor: theme.color.warningBorder,
   },
-  dupIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F7ECC7', alignItems: 'center', justifyContent: 'center' },
+  dupIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(245,184,75,0.2)', alignItems: 'center', justifyContent: 'center' },
   dupTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface },
   dupSub: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
   dupCta: { color: theme.color.brand, fontWeight: '700', fontSize: 13 },
@@ -460,7 +468,7 @@ const styles = StyleSheet.create({
     marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
     backgroundColor: theme.color.brandTertiary, borderRadius: theme.radius.md, padding: theme.spacing.md,
   },
-  recurIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#D2DED6', alignItems: 'center', justifyContent: 'center' },
+  recurIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center' },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.xl, marginTop: theme.spacing.xl, marginBottom: theme.spacing.sm },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurfaceSecondary },
   link: { color: theme.color.brand, fontSize: 13, fontWeight: '600' },
@@ -482,16 +490,16 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 20, fontWeight: '700', color: theme.color.onSurface },
   emptySub: { fontSize: 14, color: theme.color.onSurfaceTertiary, textAlign: 'center', marginTop: theme.spacing.sm, lineHeight: 20 },
   primaryBtn: { marginTop: theme.spacing.xl, backgroundColor: theme.color.brand, paddingHorizontal: theme.spacing.xl, paddingVertical: 14, borderRadius: theme.radius.md, minWidth: 220, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  primaryBtnText: { color: theme.color.onBrandPrimary, fontWeight: '700', fontSize: 15 },
   secondaryBtn: { marginTop: theme.spacing.md, paddingHorizontal: theme.spacing.xl, paddingVertical: 12 },
   secondaryBtnText: { color: theme.color.brand, fontWeight: '600', fontSize: 14 },
   muted: { color: theme.color.onSurfaceTertiary, textAlign: 'center', padding: theme.spacing.lg, fontSize: 13 },
   rangeRow: { paddingBottom: theme.spacing.md, marginBottom: theme.spacing.sm },
   rangeRowContent: { paddingHorizontal: theme.spacing.lg, gap: 8, alignItems: 'center' },
   rangeChip: { height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: theme.color.surfaceSecondary, borderWidth: 1, borderColor: theme.color.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  rangeChipActive: { backgroundColor: theme.color.surfaceInverse, borderColor: theme.color.surfaceInverse },
+  rangeChipActive: { backgroundColor: theme.color.brand, borderColor: theme.color.brand },
   rangeChipText: { fontSize: 13, color: theme.color.onSurfaceSecondary, fontWeight: '600' },
-  rangeChipTextActive: { color: '#fff' },
+  rangeChipTextActive: { color: theme.color.onBrandPrimary },
   acctSection: { marginTop: theme.spacing.md },
   totalBalCard: {
     marginHorizontal: theme.spacing.lg,
@@ -523,5 +531,5 @@ const styles = StyleSheet.create({
   modalSecondary: { paddingHorizontal: theme.spacing.lg, paddingVertical: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceTertiary },
   modalSecondaryText: { color: theme.color.onSurface, fontWeight: '600' },
   modalPrimary: { paddingHorizontal: theme.spacing.lg, paddingVertical: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.brand },
-  modalPrimaryText: { color: '#fff', fontWeight: '700' },
+  modalPrimaryText: { color: theme.color.onBrandPrimary, fontWeight: '700' },
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal } from 'react-native';
+import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -111,7 +112,7 @@ export default function SmsSyncScreen() {
           onPress={() => setShowDisclosure(true)}
           disabled={busy}
           style={[styles.primaryBtn, busy && { opacity: 0.5 }]}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Request SMS permission</Text>}
+          {busy ? <ActivityIndicator color={theme.color.onBrandPrimary} /> : <Text style={styles.primaryBtnText}>Request SMS permission</Text>}
         </Pressable>
 
         {status !== 'idle' && (
@@ -223,13 +224,13 @@ const styles = StyleSheet.create({
   heroIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center', marginBottom: theme.spacing.md },
   heroTitle: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface, textAlign: 'center' },
   heroSub: { fontSize: 13, color: theme.color.onSurfaceTertiary, textAlign: 'center', lineHeight: 20, marginTop: theme.spacing.sm },
-  warnCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#FDF6E6', borderColor: '#F3E1B2', borderWidth: 1, padding: theme.spacing.md, borderRadius: theme.radius.md, marginTop: theme.spacing.lg },
-  warnText: { flex: 1, fontSize: 13, color: '#7A5A1F', lineHeight: 19 },
+  warnCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: theme.color.warningSurface, borderColor: theme.color.warningBorder, borderWidth: 1, padding: theme.spacing.md, borderRadius: theme.radius.md, marginTop: theme.spacing.lg },
+  warnText: { flex: 1, fontSize: 13, color: theme.color.warningText, lineHeight: 19 },
   primaryBtn: { marginTop: theme.spacing.lg, backgroundColor: theme.color.brand, paddingVertical: 14, borderRadius: theme.radius.md, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  primaryBtnText: { color: theme.color.onBrandPrimary, fontWeight: '700', fontSize: 15 },
   statusCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: theme.spacing.md, borderRadius: theme.radius.md, marginTop: theme.spacing.md, borderWidth: 1 },
-  statusOk: { backgroundColor: '#E5EBE7', borderColor: '#C7DCC7' },
-  statusWarn: { backgroundColor: '#FDF6E6', borderColor: '#F3E1B2' },
+  statusOk: { backgroundColor: theme.color.brandTertiary, borderColor: 'rgba(91,240,168,0.3)' },
+  statusWarn: { backgroundColor: theme.color.warningSurface, borderColor: theme.color.warningBorder },
   statusText: { flex: 1, fontSize: 13, color: theme.color.onSurfaceSecondary, lineHeight: 19 },
   errText: { color: theme.color.error, marginTop: theme.spacing.md, textAlign: 'center' },
   resultCard: { marginTop: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, padding: theme.spacing.lg, borderRadius: theme.radius.md, gap: 8 },

@@ -10,13 +10,13 @@ export default function TabsLayout() {
         tabBarActiveTintColor: theme.color.brand,
         tabBarInactiveTintColor: theme.color.onSurfaceTertiary,
         tabBarStyle: {
-          backgroundColor: theme.color.surfaceSecondary,
+          backgroundColor: '#0B1510',
           borderTopColor: theme.color.border,
-          height: 64,
-          paddingBottom: 8,
-          paddingTop: 6,
+          height: 72,
+          paddingBottom: 10,
+          paddingTop: 8,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, lineHeight: 16, fontFamily: theme.fontFamily.semibold },
       }}>
       <Tabs.Screen
         name="index"
