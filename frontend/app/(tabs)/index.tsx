@@ -53,7 +53,6 @@ export default function Dashboard() {
   const [accounts, setAccounts] = useState<{ items: AccountBalance[]; total: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [seeding, setSeeding] = useState(false);
   const [rangeKey, setRangeKey] = useState<string>('month');
   const [customModal, setCustomModal] = useState(false);
   const [customStart, setCustomStart] = useState('');
@@ -111,16 +110,6 @@ export default function Dashboard() {
     setRefreshing(true);
     await load();
     setRefreshing(false);
-  };
-
-  const seedSample = async () => {
-    setSeeding(true);
-    try {
-      await apiFetch('/messages/seed-sample', { method: 'POST' });
-      await load();
-    } finally {
-      setSeeding(false);
-    }
   };
 
   const applyCustom = () => {
@@ -276,15 +265,8 @@ export default function Dashboard() {
             </View>
             <Text style={styles.emptyTitle}>No transactions yet</Text>
             <Text style={styles.emptySub}>
-              Import your bank SMS or emails to start tracking. Or load sample data to explore.
+              Connect your SMS to start tracking your spending automatically, or paste a bank message to add it by hand.
             </Text>
-            <Pressable
-              testID="seed-sample-button"
-              onPress={seedSample}
-              disabled={seeding}
-              style={styles.primaryBtn}>
-              {seeding ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Load sample data</Text>}
-            </Pressable>
             {Platform.OS === 'android' && (
               <Pressable testID="connect-sms-empty-button" onPress={() => router.push('/sms-sync?auto=1')} style={styles.primaryBtn}>
                 <Text style={styles.primaryBtnText}>Connect SMS to start tracking</Text>
