@@ -104,6 +104,7 @@ def test_missed_after_grace_skip_pause_dismiss():
     assert within[0]["status"] == "EXPECTED"  # inside grace: still expected
     skipped = _active(NETFLIX, {"skipped": ["2026-10-12"]})
     assert [u["expected_date"] for u in R.project([skipped], TODAY, 60)] == ["2026-11-12"]
+    assert skipped["next_date"] == date(2026, 11, 12)  # shown date skips the skipped one
     for st in ("PAUSED", "DISMISSED", "ENDED"):
         assert R.project([_active(NETFLIX, {"status": st})], TODAY, 90) == []
 

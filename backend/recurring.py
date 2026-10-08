@@ -154,6 +154,8 @@ def apply_prefs(p: dict, pref: Optional[dict]) -> dict:
         p["next_date"] = date.fromisoformat(nd)
     else:
         p["next_date"] = next_after(p["last_date"], p["frequency"])
+    while p["next_date"].isoformat() in p["skipped"]:  # show the next payment that is still expected
+        p["next_date"] = next_after(p["next_date"], p["frequency"])
     return p
 
 
