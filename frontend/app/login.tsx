@@ -93,6 +93,96 @@ function buildGoogleWebRedirectUrl(): string {
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
+type Scene = {
+  amount: number; bars: number[]; due: string;
+  txn: { name: string; cat: string; amt: string; icon: keyof typeof Ionicons.glyphMap; tint: string };
+};
+// Illustrative only: cycles every 8s while the login screen is showing.
+const SCENES: Scene[] = [
+  { amount: 24860, bars: [0.45, 0.7, 0.35, 0.85, 0.55, 0.65, 1], due: 'Netflix due in 3 days',
+    txn: { name: 'Swiggy', cat: 'Food & Dining', amt: '−₹499', icon: 'restaurant', tint: '#FFB27A' } },
+  { amount: 18340, bars: [0.3, 0.5, 0.8, 0.4, 0.6, 0.35, 0.9], due: 'Electricity due in 2 days',
+    txn: { name: 'Flipkart', cat: 'Shopping', amt: '−₹1,299', icon: 'bag-handle', tint: '#C7A6FF' } },
+  { amount: 31720, bars: [0.6, 0.4, 0.95, 0.7, 0.5, 0.8, 1], due: 'Rent due in 5 days',
+    txn: { name: 'Amazon', cat: 'Shopping', amt: '−₹2,349', icon: 'cube', tint: '#FFD27A' } },
+  { amount: 12905, bars: [0.25, 0.4, 0.3, 0.55, 0.35, 0.5, 0.75], due: 'Spotify due in 4 days',
+    txn: { name: 'Uber', cat: 'Transport', amt: '−₹286', icon: 'car', tint: '#8DB8FF' } },
+  { amount: 27480, bars: [0.5, 0.85, 0.45, 0.6, 0.9, 0.55, 0.8], due: 'Airtel due in 6 days',
+    txn: { name: 'BigBasket', cat: 'Groceries', amt: '−₹1,184', icon: 'basket', tint: '#8BE5A8' } },
+  { amount: 9640, bars: [0.2, 0.35, 0.5, 0.3, 0.45, 0.6, 0.55], due: 'Insurance due in 7 days',
+    txn: { name: 'Myntra', cat: 'Shopping', amt: '−₹899', icon: 'shirt', tint: '#FF9EC4' } },
+  { amount: 21175, bars: [0.55, 0.65, 0.4, 0.75, 0.5, 0.9, 0.7], due: 'Broadband due tomorrow',
+    txn: { name: 'Zomato', cat: 'Food & Dining', amt: '−₹612', icon: 'fast-food', tint: '#FF8A7A' } },
+];
+const SCENE_MS = 8000;
+
+function HeroPreview() {
+  const [idx, setIdx] = useState(0);
+  const [amount, setAmount] = useState(SCENES[0].amount);
+  const fade = useRef(new Animated.Value(1)).current;
+  const amountV = useRef(new Animated.Value(SCENES[0].amount)).current;
+  const barsV = useRef(SCENES[0].bars.map((h) => new Animated.Value(h))).current;
+
+  useEffect(() => {
+    const id = amountV.addListener(({ value }) => setAmount(Math.round(value)));
+    return () => amountV.removeListener(id);
+  }, [amountV]);
+
+  const cur = useRef(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const next = (cur.current + 1) % SCENES.length;
+      cur.current = next;
+      // text cards fade out, swap, fade in; amount and bars glide to the new values
+      Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: Platform.OS !== 'web' }).start(() => {
+        setIdx(next);
+        Animated.timing(fade, { toValue: 1, duration: 380, useNativeDriver: Platform.OS !== 'web' }).start();
+      });
+      Animated.timing(amountV, { toValue: SCENES[next].amount, duration: 1000, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+      barsV.forEach((v, i) => Animated.timing(v, { toValue: SCENES[next].bars[i], duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start());
+    }, SCENE_MS);
+    return () => clearInterval(timer);
+  }, [fade, amountV, barsV]);
+
+  const sc = SCENES[idx];
+  return (
+    <View style={styles.hero}>
+      <Float dy={5} ms={3600} style={styles.cardMain}>
+        <Text style={styles.cardLabel}>Spent this month</Text>
+        <Text style={styles.cardAmount}>₹{amount.toLocaleString('en-IN')}</Text>
+        <View style={styles.bars}>
+          {barsV.map((v, i) => (
+            <Animated.View
+              key={i}
+              style={[styles.bar, { height: v.interpolate({ inputRange: [0, 1], outputRange: [10, 52] }) }, i === 6 && { backgroundColor: MINT }]}
+            />
+          ))}
+        </View>
+      </Float>
+
+      <Float dy={7} ms={3000} style={styles.cardTxn}>
+        <Animated.View style={[styles.txnInner, { opacity: fade }]}>
+          <View style={[styles.txnIcon, { backgroundColor: sc.txn.tint + '29' }]}>
+            <Ionicons name={sc.txn.icon} size={16} color={sc.txn.tint} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.txnTitle}>{sc.txn.name}</Text>
+            <Text style={styles.txnSub}>{sc.txn.cat}</Text>
+          </View>
+          <Text style={styles.txnAmt}>{sc.txn.amt}</Text>
+        </Animated.View>
+      </Float>
+
+      <Float dy={6} ms={4000} style={styles.cardDue}>
+        <Animated.View style={[styles.dueInner, { opacity: fade }]}>
+          <Ionicons name="notifications" size={14} color={MINT} />
+          <Text style={styles.dueText}>{sc.due}</Text>
+        </Animated.View>
+      </Float>
+    </View>
+  );
+}
+
 export default function LoginScreen() {
   const { signInWithGoogleIdToken, signInWithReviewerCode } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -194,31 +284,7 @@ export default function LoginScreen() {
             </Pressable>
 
             {/* Illustrative preview of the app */}
-            <View style={styles.hero}>
-              <Float dy={5} ms={3600} style={styles.cardMain}>
-                <Text style={styles.cardLabel}>Spent this month</Text>
-                <Text style={styles.cardAmount}>₹24,860</Text>
-                <View style={styles.bars}>
-                  {[0.45, 0.7, 0.35, 0.85, 0.55, 0.65, 1].map((h, i) => (
-                    <View key={i} style={[styles.bar, { height: 10 + h * 42 }, i === 6 && { backgroundColor: MINT }]} />
-                  ))}
-                </View>
-              </Float>
-
-              <Float dy={7} ms={3000} style={styles.cardTxn}>
-                <View style={styles.txnIcon}><Ionicons name="restaurant" size={16} color="#FFB27A" /></View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.txnTitle}>Swiggy</Text>
-                  <Text style={styles.txnSub}>Food & Dining</Text>
-                </View>
-                <Text style={styles.txnAmt}>−₹499</Text>
-              </Float>
-
-              <Float dy={6} ms={4000} style={styles.cardDue}>
-                <Ionicons name="notifications" size={14} color={MINT} />
-                <Text style={styles.dueText}>Netflix due in 3 days</Text>
-              </Float>
-            </View>
+            <HeroPreview />
 
             <Text style={styles.headline}>
               Your money,{'\n'}
@@ -301,12 +367,14 @@ const styles = StyleSheet.create({
   cardAmount: { fontFamily: F.bold, fontSize: 40, color: '#FFFFFF', letterSpacing: -1, marginTop: 2 },
   bars: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 16, height: 52 },
   bar: { width: 14, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.22)' },
-  cardTxn: { ...glass, position: 'absolute', right: 0, bottom: 0, width: '70%', flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 14, backgroundColor: 'rgba(20,38,29,0.82)' },
-  txnIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,178,122,0.16)', alignItems: 'center', justifyContent: 'center' },
+  cardTxn: { ...glass, position: 'absolute', right: 0, bottom: 0, width: '70%', paddingVertical: 12, paddingHorizontal: 14, backgroundColor: 'rgba(20,38,29,0.82)' },
+  txnInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  txnIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   txnTitle: { fontFamily: F.semibold, fontSize: 14, color: '#FFFFFF' },
   txnSub: { fontFamily: F.regular, fontSize: 11.5, color: 'rgba(255,255,255,0.6)', marginTop: 1 },
   txnAmt: { fontFamily: F.bold, fontSize: 14, color: '#FFFFFF' },
-  cardDue: { ...glass, position: 'absolute', right: 6, top: 0, flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, backgroundColor: 'rgba(91,240,168,0.14)', borderColor: 'rgba(91,240,168,0.32)' },
+  cardDue: { ...glass, position: 'absolute', right: 6, top: 0, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 999, backgroundColor: 'rgba(91,240,168,0.14)', borderColor: 'rgba(91,240,168,0.32)' },
+  dueInner: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dueText: { fontFamily: F.medium, fontSize: 12.5, color: '#D8FBE9' },
 
   headline: { fontFamily: F.extrabold, fontSize: 42, lineHeight: 46, color: '#FFFFFF', letterSpacing: -1.3, marginTop: 30 },
