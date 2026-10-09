@@ -1082,7 +1082,9 @@ async def list_upcoming(days: int = 90, category: Optional[str] = None, account:
 async def upcoming_summary(authorization: Optional[str] = Header(None)):
     user = await get_current_user(authorization)
     today = datetime.now(timezone.utc).date()
-    return rec.summarize(await _upcoming(user.user_id, 90), today)
+    patterns = await _recurring_patterns(user.user_id)
+    summary = rec.summarize(rec.project(patterns, today, 90), today)
+    return {**summary, **rec.monthly_commitment(patterns)}
 
 class SkipRequest(BaseModel):
     recurring_id: str

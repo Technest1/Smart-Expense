@@ -129,3 +129,13 @@ def test_generic_merchants_never_grouped():
 def test_month_end_clamping():
     assert R.add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)
     assert R.add_months(date(2026, 11, 30), 3) == date(2027, 2, 28)
+
+
+def test_monthly_commitment_normalises_frequencies():
+    weekly = _active([tx("Milk", 120, date(2026, 8, 30) + timedelta(days=7 * k)) for k in range(4)])
+    yearly = _active([tx("Insurance", 12000, date(2025, 3, 20)), tx("Insurance", 12000, date(2026, 3, 21))])
+    monthly = _active(NETFLIX)
+    dismissed = _active(NETFLIX, {"status": "DISMISSED"})
+    mc = R.monthly_commitment([weekly, yearly, monthly, dismissed])
+    assert mc["active_count"] == 3
+    assert mc["monthly_total"] == round(120 * 52 / 12 + 12000 / 12 + 649, 2)

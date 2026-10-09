@@ -28,6 +28,7 @@ PERIOD_DAYS = {"WEEKLY": 7, "FORTNIGHTLY": 14, "MONTHLY": 30, "QUARTERLY": 91,
                "HALF_YEARLY": 182, "YEARLY": 365}
 PERIOD_MONTHS = {"MONTHLY": 1, "QUARTERLY": 3, "HALF_YEARLY": 6, "YEARLY": 12}
 GRACE_DAYS = 5
+PER_MONTH = {"WEEKLY": 52 / 12, "FORTNIGHTLY": 26 / 12, "MONTHLY": 1, "QUARTERLY": 1 / 3, "HALF_YEARLY": 1 / 6, "YEARLY": 1 / 12}
 # Merchant keys that are really a payment mode / unparsed payee: many different payees share
 # them, so grouping on them would invent patterns. (Found on real SMS: 'Unknown' merged 7 payees.)
 GENERIC_MERCHANTS = {"unknown", "bank", "upi", "neft", "imps", "rtgs", "atm", "cheque", "payment", "transfer"}
@@ -200,3 +201,12 @@ def summarize(upcoming: List[dict], today: date) -> dict:
         res[f"next_{days}_days"] = round(sum(u["expected_amount"] for u in rows), 2)
         res[f"count_{days}_days"] = len(rows)
     return res
+
+
+def monthly_commitment(patterns: List[dict]) -> dict:
+    """How many payments the user is tracking and what they cost per month on average."""
+    active = [p for p in patterns if p["status"] == "ACTIVE"]
+    return {
+        "active_count": len(active),
+        "monthly_total": round(sum(p["expected_amount"] * PER_MONTH[p["frequency"]] for p in active), 2),
+    }

@@ -25,7 +25,7 @@ type Dash = {
   budgets?: { id: string; category: string; monthly_limit: number; spent: number; pct: number; over_budget: boolean; near_limit: boolean }[];
   recurring_count?: number;
 };
-type UpcomingSummary = { next_7_days: number; next_30_days: number; next_90_days: number; count_30_days: number };
+type UpcomingSummary = { next_7_days: number; next_30_days: number; next_90_days: number; count_30_days: number; active_count?: number; monthly_total?: number };
 type AccountBalance = { account: string; balance: number; as_of: string; bank: string | null; estimated?: boolean; adjusted_txns?: number };
 
 const BANK_AVATAR_COLORS = ['#2E4F3D', '#4A6FA5', '#8B5B9F', '#C25A3A', '#A87A2B', '#2F7A78'];
@@ -279,7 +279,7 @@ export default function Dashboard() {
                   : `${data?.recurring_count} recurring payment${(data?.recurring_count || 0) > 1 ? 's' : ''}`}
               </Text>
               <Text style={styles.dupSub}>
-                {(upcoming?.next_7_days || 0) > 0 ? `${formatINR(upcoming!.next_7_days)} in the next 7 days • ` : ''}Tap to see upcoming & recurring
+                {(upcoming?.next_7_days || 0) > 0 ? `${formatINR(upcoming!.next_7_days)} in the next 7 days • ` : ''}{(upcoming?.active_count || 0) > 0 ? `${upcoming!.active_count} active • ~${formatINR(upcoming!.monthly_total || 0)} / month` : 'Tap to see upcoming & recurring'}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.color.brand} />
