@@ -434,6 +434,25 @@ def detect_payment_mode(text: str) -> str:
             return mode
     return "other"
 
+_MONTHS = {m: i for i, m in enumerate(["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
+
+def parse_text_date(text: str, now: datetime) -> Optional[datetime]:
+    """Transaction date written inside a message (dd-mm-yy, dd/mm/yyyy, dd-Mon-yy ...).
+    Used only for messages that carry no timestamp of their own (pasted ones). The first date
+    that is plausible wins: not in the future (a due date), not older than ~3 years. Returns
+    noon India time on that day, or None when there is no usable date."""
+    for m in DATE_RE.finditer(text or ""):
+        d, mo, y = re.split(r"[-/]", m.group(1))
+        try:
+            month = int(mo) if mo.isdigit() else _MONTHS[mo.lower()]
+            year = int(y) + (2000 if len(y) == 2 else 0)
+            dt = datetime(year, month, int(d), 6, 30, tzinfo=timezone.utc)
+        except (ValueError, KeyError):
+            continue
+        if now - timedelta(days=3 * 365) <= dt <= now + timedelta(days=1):
+            return dt
+    return None
+
 def regex_parse(text: str, source: str, received_at: datetime) -> Optional[dict]:
     if PROMO_RE.search(text) or FAILED_PAYMENT_RE.search(text) or BROKERAGE_RE.search(text):
         return None
@@ -585,7 +604,9 @@ async def ingest_messages(payload: IngestRequest, authorization: Optional[str] =
     skipped = 0
     results = []
     for item in payload.items:
-        received_at = item.received_at or datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        # pasted messages carry no timestamp: use the date written in the message if there is one
+        received_at = item.received_at or parse_text_date(item.text, now) or now
         r = await ingest_one_item(user.user_id, item.source, item.text, received_at)
         results.append(r)
         if r["status"] == "saved":
