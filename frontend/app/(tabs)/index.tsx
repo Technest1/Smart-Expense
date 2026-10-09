@@ -10,6 +10,7 @@ import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR, displayMerchant } fr
 import { useAuth } from '@/src/contexts/AuthContext';
 import { storage } from '@/src/utils/storage';
 import { runSmsSync } from '@/src/services/smsSync';
+import { SyncOverlay } from '@/src/ui/SyncIndicators';
 
 type Txn = {
   id: string; amount: number; direction: 'debit' | 'credit'; merchant: string;
@@ -86,13 +87,25 @@ export default function Dashboard() {
   // first visit (per user) send them to the disclosure + permission screen; if already
   // allowed, catch up on anything missed while the background task wasn't running.
   const smsBusy = useRef(false);
+  const [firstSync, setFirstSync] = useState(false);
   const smsOnboarding = useCallback(async () => {
     if (Platform.OS !== 'android' || smsBusy.current) return;
     smsBusy.current = true;
     try {
       if (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS)) {
-        const r = await runSmsSync();
-        if (r.saved > 0) await load();
+        // very first sync on this install can take a while: show the working screen
+        const first = !(await storage.getItem<number>('expensesync_sms_last_sync_ms', 0));
+        const started = Date.now();
+        if (first) setFirstSync(true);
+        try {
+          const r = await runSmsSync();
+          if (r.saved > 0) await load();
+        } finally {
+          if (first) {
+            await new Promise((res) => setTimeout(res, Math.max(0, 1600 - (Date.now() - started))));
+            setFirstSync(false);
+          }
+        }
         return;
       }
       const key = `sms_onboarding_shown_${user?.user_id}`;
@@ -138,6 +151,7 @@ export default function Dashboard() {
 
   return (
     <SafeAreaView style={styles.root} edges={['top']} testID="dashboard-screen">
+      <SyncOverlay visible={firstSync} />
       <ScrollView
         contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.color.brand} />}>

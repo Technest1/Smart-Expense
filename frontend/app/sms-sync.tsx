@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { runSmsSync, SmsSyncResult } from '@/src/services/smsSync';
 import { theme } from '@/src/theme';
+import { SyncOverlay } from '@/src/ui/SyncIndicators';
 
 /**
  * SMS Sync — real Android SMS reading.
@@ -23,6 +24,7 @@ export default function SmsSyncScreen() {
   const { auto } = useLocalSearchParams<{ auto?: string }>();
   const [status, setStatus] = useState<'idle' | 'granted' | 'denied' | 'unavailable'>('idle');
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<SmsSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [showDisclosure, setShowDisclosure] = useState(false);
@@ -61,14 +63,19 @@ export default function SmsSyncScreen() {
 
   const syncNow = async () => {
     setBusy(true);
+    setSyncing(true);
     setSyncError(null);
     setResult(null);
+    const started = Date.now();
     try {
       const r = await runSmsSync();
       setResult(r);
     } catch (e: any) {
       setSyncError(e?.message || 'Sync failed');
     } finally {
+      // keep the "syncing" screen up long enough to be read, even if the sync was instant
+      await new Promise((res) => setTimeout(res, Math.max(0, 1600 - (Date.now() - started))));
+      setSyncing(false);
       setBusy(false);
     }
   };
@@ -82,6 +89,8 @@ export default function SmsSyncScreen() {
         <Text style={styles.topTitle}>Auto-read SMS</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      <SyncOverlay visible={syncing} />
 
       <ScrollView contentContainerStyle={{ padding: theme.spacing.lg }}>
         <View style={styles.heroCard}>

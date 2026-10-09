@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path } from 'react-native-svg';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { theme } from '@/src/theme';
+import { SpinnerRing, SyncOverlay } from '@/src/ui/SyncIndicators';
 
 const PRIVACY_URL = 'https://technest1.github.io/Smart-Expense/privacy.html';
 const MINT = '#5BF0A8';
@@ -271,6 +272,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.root} testID="login-screen">
+      <SyncOverlay visible={busy} title="Signing you in" subtitle="Setting up your account. This can take a few seconds." />
       <Glow size={460} color="#2BD98A" style={{ top: -170, left: -170 }} />
       <Glow size={380} color="#1FA878" style={{ top: 230, right: -190 }} />
       <Glow size={320} color="#B8F04A" style={{ bottom: -140, left: -90 }} />
@@ -302,14 +304,8 @@ export default function LoginScreen() {
               onPress={login}
               disabled={busy}
               style={({ pressed }) => [styles.googleBtn, pressed && { opacity: 0.88, transform: [{ scale: 0.99 }] }]}>
-              {busy ? (
-                <ActivityIndicator color="#0B1410" />
-              ) : (
-                <>
-                  <GoogleG />
-                  <Text style={styles.googleBtnText}>Continue with Google</Text>
-                </>
-              )}
+              {busy ? <SpinnerRing size={22} thickness={3} color="#0B1410" /> : <GoogleG />}
+              <Text style={styles.googleBtnText}>{busy ? 'Signing you in…' : 'Continue with Google'}</Text>
             </Pressable>
 
             {err ? <Text style={styles.err} testID="login-error">{err}</Text> : null}
