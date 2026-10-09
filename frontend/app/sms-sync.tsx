@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal, Alert } from 'react-native';
+import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { runSmsSync, SmsSyncResult } from '@/src/services/smsSync';
+import { runSmsSync, resetSmsCursor, SmsSyncResult } from '@/src/services/smsSync';
 import { theme } from '@/src/theme';
+import { SyncOverlay } from '@/src/ui/SyncIndicators';
 
 /**
  * SMS Sync — real Android SMS reading.
@@ -22,12 +24,17 @@ export default function SmsSyncScreen() {
   const { auto } = useLocalSearchParams<{ auto?: string }>();
   const [status, setStatus] = useState<'idle' | 'granted' | 'denied' | 'unavailable'>('idle');
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<SmsSyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [showDisclosure, setShowDisclosure] = useState(false);
 
   useEffect(() => {
-    if (auto === '1' && Platform.OS === 'android') setShowDisclosure(true);
+    if (Platform.OS !== 'android') return;
+    PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS).then((ok) => {
+      if (ok) setStatus('granted');
+      else if (auto === '1') setShowDisclosure(true);
+    }).catch(() => {});
   }, [auto]);
 
   const requestPerm = async () => {
@@ -58,22 +65,33 @@ export default function SmsSyncScreen() {
     setBusy(false);
   };
 
+  const resyncAll = () =>
+    Alert.alert('Re-read all messages?', 'Moneta will read your whole SMS inbox again. Messages it already has are skipped, so nothing is counted twice.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Re-read', onPress: async () => { await resetSmsCursor(); await syncNow(); } },
+    ]);
+
   const syncNow = async () => {
     setBusy(true);
+    setSyncing(true);
     setSyncError(null);
     setResult(null);
+    const started = Date.now();
     try {
       const r = await runSmsSync();
       setResult(r);
     } catch (e: any) {
       setSyncError(e?.message || 'Sync failed');
     } finally {
+      // keep the "syncing" screen up long enough to be read, even if the sync was instant
+      await new Promise((res) => setTimeout(res, Math.max(0, 1600 - (Date.now() - started))));
+      setSyncing(false);
       setBusy(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="sms-sync-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="sms-sync-screen">
       <View style={styles.topBar}>
         <Pressable testID="sms-sync-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />
@@ -81,6 +99,8 @@ export default function SmsSyncScreen() {
         <Text style={styles.topTitle}>Auto-read SMS</Text>
         <View style={{ width: 40 }} />
       </View>
+
+      <SyncOverlay visible={syncing} />
 
       <ScrollView contentContainerStyle={{ padding: theme.spacing.lg }}>
         <View style={styles.heroCard}>
@@ -111,7 +131,7 @@ export default function SmsSyncScreen() {
           onPress={() => setShowDisclosure(true)}
           disabled={busy}
           style={[styles.primaryBtn, busy && { opacity: 0.5 }]}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Request SMS permission</Text>}
+          {busy ? <ActivityIndicator color={theme.color.onBrandPrimary} /> : <Text style={styles.primaryBtnText}>Request SMS permission</Text>}
         </Pressable>
 
         {status !== 'idle' && (
@@ -136,6 +156,12 @@ export default function SmsSyncScreen() {
             disabled={busy}
             style={[styles.secondaryBtn, { marginTop: theme.spacing.md }, busy && { opacity: 0.5 }]}>
             {busy ? <ActivityIndicator color={theme.color.onSurface} /> : <Text style={styles.secondaryBtnText}>Sync now</Text>}
+          </Pressable>
+        )}
+
+        {status === 'granted' && (
+          <Pressable testID="resync-all-btn" onPress={resyncAll} disabled={busy} style={[styles.secondaryBtn, { marginTop: theme.spacing.sm }, busy && { opacity: 0.5 }]}>
+            <Text style={styles.secondaryBtnText}>Re-read all messages</Text>
           </Pressable>
         )}
 
@@ -223,13 +249,13 @@ const styles = StyleSheet.create({
   heroIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center', marginBottom: theme.spacing.md },
   heroTitle: { fontSize: 18, fontWeight: '700', color: theme.color.onSurface, textAlign: 'center' },
   heroSub: { fontSize: 13, color: theme.color.onSurfaceTertiary, textAlign: 'center', lineHeight: 20, marginTop: theme.spacing.sm },
-  warnCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: '#FDF6E6', borderColor: '#F3E1B2', borderWidth: 1, padding: theme.spacing.md, borderRadius: theme.radius.md, marginTop: theme.spacing.lg },
-  warnText: { flex: 1, fontSize: 13, color: '#7A5A1F', lineHeight: 19 },
+  warnCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: theme.color.warningSurface, borderColor: theme.color.warningBorder, borderWidth: 1, padding: theme.spacing.md, borderRadius: theme.radius.md, marginTop: theme.spacing.lg },
+  warnText: { flex: 1, fontSize: 13, color: theme.color.warningText, lineHeight: 19 },
   primaryBtn: { marginTop: theme.spacing.lg, backgroundColor: theme.color.brand, paddingVertical: 14, borderRadius: theme.radius.md, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  primaryBtnText: { color: theme.color.onBrandPrimary, fontWeight: '700', fontSize: 15 },
   statusCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: theme.spacing.md, borderRadius: theme.radius.md, marginTop: theme.spacing.md, borderWidth: 1 },
-  statusOk: { backgroundColor: '#E5EBE7', borderColor: '#C7DCC7' },
-  statusWarn: { backgroundColor: '#FDF6E6', borderColor: '#F3E1B2' },
+  statusOk: { backgroundColor: theme.color.brandTertiary, borderColor: 'rgba(91,240,168,0.3)' },
+  statusWarn: { backgroundColor: theme.color.warningSurface, borderColor: theme.color.warningBorder },
   statusText: { flex: 1, fontSize: 13, color: theme.color.onSurfaceSecondary, lineHeight: 19 },
   errText: { color: theme.color.error, marginTop: theme.spacing.md, textAlign: 'center' },
   resultCard: { marginTop: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, padding: theme.spacing.lg, borderRadius: theme.radius.md, gap: 8 },

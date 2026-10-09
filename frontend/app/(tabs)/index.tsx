@@ -1,13 +1,16 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, TextInput, Platform, PermissionsAndroid } from 'react-native';
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, ActivityIndicator, Modal, Platform, PermissionsAndroid } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { apiFetch } from '@/src/api/client';
 import { theme, CATEGORY_COLORS, CATEGORY_ICONS, formatINR, displayMerchant } from '@/src/theme';
 import { useAuth } from '@/src/contexts/AuthContext';
 import { storage } from '@/src/utils/storage';
 import { runSmsSync } from '@/src/services/smsSync';
+import { SyncOverlay } from '@/src/ui/SyncIndicators';
 
 type Txn = {
   id: string; amount: number; direction: 'debit' | 'credit'; merchant: string;
@@ -22,8 +25,8 @@ type Dash = {
   budgets?: { id: string; category: string; monthly_limit: number; spent: number; pct: number; over_budget: boolean; near_limit: boolean }[];
   recurring_count?: number;
 };
-type UpcomingSummary = { next_7_days: number; next_30_days: number; next_90_days: number; count_30_days: number };
-type AccountBalance = { account: string; balance: number; as_of: string; bank: string | null };
+type UpcomingSummary = { next_7_days: number; next_30_days: number; next_90_days: number; count_30_days: number; active_count?: number; monthly_total?: number };
+type AccountBalance = { account: string; balance: number; as_of: string; bank: string | null; estimated?: boolean; adjusted_txns?: number };
 
 const BANK_AVATAR_COLORS = ['#2E4F3D', '#4A6FA5', '#8B5B9F', '#C25A3A', '#A87A2B', '#2F7A78'];
 
@@ -51,11 +54,11 @@ export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
   const [data, setData] = useState<Dash | null>(null);
-  const [accounts, setAccounts] = useState<{ items: AccountBalance[]; total: number } | null>(null);
+  const [accounts, setAccounts] = useState<{ items: AccountBalance[]; total: number; estimated?: boolean } | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [rangeKey, setRangeKey] = useState<string>('month');
+  const [rangeKey, setRangeKey] = useState<string>('today'); // opens on Today at every sign-in
   const [customModal, setCustomModal] = useState(false);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -70,7 +73,7 @@ export default function Dashboard() {
       }
       const [d, a] = await Promise.all([
         apiFetch<Dash>(url),
-        apiFetch<{ items: AccountBalance[]; total: number }>('/accounts/balances'),
+        apiFetch<{ items: AccountBalance[]; total: number; estimated?: boolean }>('/accounts/balances'),
       ]);
       setData(d);
       setAccounts(a);
@@ -84,13 +87,25 @@ export default function Dashboard() {
   // first visit (per user) send them to the disclosure + permission screen; if already
   // allowed, catch up on anything missed while the background task wasn't running.
   const smsBusy = useRef(false);
+  const [firstSync, setFirstSync] = useState(false);
   const smsOnboarding = useCallback(async () => {
     if (Platform.OS !== 'android' || smsBusy.current) return;
     smsBusy.current = true;
     try {
       if (await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS)) {
-        const r = await runSmsSync();
-        if (r.saved > 0) await load();
+        // very first sync on this install can take a while: show the working screen
+        const first = !(await storage.getItem<number>('expensesync_sms_last_sync_ms', 0));
+        const started = Date.now();
+        if (first) setFirstSync(true);
+        try {
+          const r = await runSmsSync();
+          if (r.saved > 0) await load();
+        } finally {
+          if (first) {
+            await new Promise((res) => setTimeout(res, Math.max(0, 1600 - (Date.now() - started))));
+            setFirstSync(false);
+          }
+        }
         return;
       }
       const key = `sms_onboarding_shown_${user?.user_id}`;
@@ -132,10 +147,11 @@ export default function Dashboard() {
   }
 
   const catTotal = (data?.by_category || []).reduce((s, x) => s + x.amount, 0);
-  const currentLabel = data?.range?.label || 'This month';
+  const currentLabel = data?.range?.label || 'Today';
 
   return (
     <SafeAreaView style={styles.root} edges={['top']} testID="dashboard-screen">
+      <SyncOverlay visible={firstSync} />
       <ScrollView
         contentContainerStyle={{ paddingBottom: 32 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.color.brand} />}>
@@ -168,7 +184,10 @@ export default function Dashboard() {
           ))}
         </ScrollView>
 
-        <View style={styles.balanceCard}>
+        <LinearGradient colors={['#1F7352', '#124232', '#0B261C']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.balanceCard}>
+          {[1, 0.78, 0.58, 0.4].map((k) => (
+            <View key={k} pointerEvents="none" style={[styles.balanceGlow, { width: 230 * k, height: 230 * k, borderRadius: 115 * k, top: -80 + (230 - 230 * k) / 2, right: -60 + (230 - 230 * k) / 2, backgroundColor: 'rgba(91,240,168,0.06)' }]} />
+          ))}
           <Text style={styles.balanceLabel}>SPENT · {(currentLabel || '').toUpperCase()}</Text>
           <Text style={styles.balanceAmount} testID="month-spend">
             {formatINR(data?.month_spend || 0)}
@@ -183,7 +202,7 @@ export default function Dashboard() {
               <Text style={styles.pillText}>{data?.total_transactions || 0} txns</Text>
             </View>
           </View>
-        </View>
+        </LinearGradient>
 
         {(accounts?.items?.length || 0) > 0 && (
           <View style={styles.acctSection}>
@@ -197,9 +216,9 @@ export default function Dashboard() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.totalBalLabel}>TOTAL BALANCE</Text>
-                  <Text style={styles.totalBalAmount} testID="total-balance-amount">{formatINR(accounts!.total)}</Text>
+                  <Text style={styles.totalBalAmount} testID="total-balance-amount">{accounts!.estimated ? '~' : ''}{formatINR(accounts!.total)}</Text>
                   <Text style={styles.totalBalMeta}>
-                    across {accounts!.items.length} account{accounts!.items.length > 1 ? 's' : ''}
+                    across {accounts!.items.length} account{accounts!.items.length > 1 ? 's' : ''}{accounts!.estimated ? ' • estimated' : ''}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={theme.color.onSurfaceTertiary} />
@@ -229,8 +248,8 @@ export default function Dashboard() {
             key={b.id}
             testID={`budget-alert-${b.category}`}
             onPress={() => router.push('/budgets')}
-            style={[styles.dupBanner, b.over_budget && { backgroundColor: '#FBE9E9', borderColor: '#F1CFCF' }]}>
-            <View style={[styles.dupIcon, b.over_budget && { backgroundColor: '#F5D6D6' }]}>
+            style={[styles.dupBanner, b.over_budget && { backgroundColor: theme.color.errorSurface, borderColor: theme.color.errorBorder }]}>
+            <View style={[styles.dupIcon, b.over_budget && { backgroundColor: 'rgba(255,123,123,0.2)' }]}>
               <Ionicons name={b.over_budget ? 'flame' : 'trending-up'} size={18} color={b.over_budget ? theme.color.error : theme.color.warning} />
             </View>
             <View style={{ flex: 1 }}>
@@ -260,7 +279,7 @@ export default function Dashboard() {
                   : `${data?.recurring_count} recurring payment${(data?.recurring_count || 0) > 1 ? 's' : ''}`}
               </Text>
               <Text style={styles.dupSub}>
-                {(upcoming?.next_7_days || 0) > 0 ? `${formatINR(upcoming!.next_7_days)} in the next 7 days • ` : ''}Tap to see upcoming & recurring
+                {(upcoming?.next_7_days || 0) > 0 ? `${formatINR(upcoming!.next_7_days)} in the next 7 days • ` : ''}{(upcoming?.active_count || 0) > 0 ? `${upcoming!.active_count} active • ~${formatINR(upcoming!.monthly_total || 0)} / month` : 'Tap to see upcoming & recurring'}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={theme.color.brand} />
@@ -272,11 +291,19 @@ export default function Dashboard() {
             <View style={styles.emptyIcon}>
               <Ionicons name="wallet-outline" size={40} color={theme.color.brand} />
             </View>
-            <Text style={styles.emptyTitle}>No transactions yet</Text>
-            <Text style={styles.emptySub}>
-              Connect your SMS to start tracking your spending automatically, or paste a bank message to add it by hand.
+            <Text style={styles.emptyTitle}>
+              {rangeKey === 'all' ? 'No transactions yet' : `Nothing recorded ${currentLabel.toLowerCase()}`}
             </Text>
-            {Platform.OS === 'android' && (
+            <Text style={styles.emptySub}>
+              {rangeKey === 'all'
+                ? 'Connect your SMS to start tracking your spending automatically, or paste a bank message to add it by hand.'
+                : 'New spending appears here as soon as a bank message arrives. Look at a wider range to see earlier activity.'}
+            </Text>
+            {rangeKey !== 'all' ? (
+              <Pressable testID="show-all-time-button" onPress={() => setRangeKey('all')} style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnText}>Show all time</Text>
+              </Pressable>
+            ) : Platform.OS === 'android' && (
               <Pressable testID="connect-sms-empty-button" onPress={() => router.push('/sms-sync?auto=1')} style={styles.primaryBtn}>
                 <Text style={styles.primaryBtnText}>Connect SMS to start tracking</Text>
               </Pressable>
@@ -408,13 +435,18 @@ export default function Dashboard() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.acctDetailName}>{a.bank || 'Bank account'}</Text>
                     <Text style={styles.acctDetailMeta}>
-                      {a.account} • as of {new Date(a.as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      {a.account} • as of {new Date(a.as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{a.estimated ? ` + ${a.adjusted_txns} later transaction${a.adjusted_txns === 1 ? '' : 's'}` : ''}
                     </Text>
                   </View>
-                  <Text style={styles.acctDetailBalance}>{formatINR(a.balance)}</Text>
+                  <Text style={styles.acctDetailBalance}>{a.estimated ? '~' : ''}{formatINR(a.balance)}</Text>
                 </View>
               ))}
             </ScrollView>
+            {accounts?.estimated && (
+              <Text style={styles.balNote}>
+                ~ means estimated: your bank's last printed balance, adjusted by later transactions whose messages don't show a balance.
+              </Text>
+            )}
             <View style={styles.modalActions}>
               <Pressable testID="balances-close" onPress={() => setBalancesSheet(false)} style={styles.modalPrimary}>
                 <Text style={styles.modalPrimaryText}>Close</Text>
@@ -436,22 +468,25 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.color.surfaceTertiary, alignItems: 'center', justifyContent: 'center' },
   balanceCard: {
     marginHorizontal: theme.spacing.lg,
-    backgroundColor: theme.color.surfaceInverse,
     borderRadius: theme.radius.lg,
     padding: theme.spacing.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(91,240,168,0.25)',
   },
+  balanceGlow: { position: 'absolute', width: 210, height: 210, borderRadius: 105, top: -80, right: -60, backgroundColor: 'rgba(91,240,168,0.16)' },
   balanceLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: '700', letterSpacing: 1.2 },
-  balanceAmount: { color: '#fff', fontSize: 40, fontWeight: '700', marginTop: theme.spacing.sm, letterSpacing: -1 },
+  balanceAmount: { color: '#fff', fontSize: 44, fontWeight: '700', marginTop: theme.spacing.sm, letterSpacing: -1 },
   balanceRow: { flexDirection: 'row', gap: 8, marginTop: theme.spacing.lg, flexWrap: 'wrap' },
   balancePill: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
   pillText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   dupBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
-    backgroundColor: '#FDF6E6', borderRadius: theme.radius.md, padding: theme.spacing.md,
-    borderWidth: 1, borderColor: '#F3E1B2',
+    backgroundColor: theme.color.warningSurface, borderRadius: theme.radius.md, padding: theme.spacing.md,
+    borderWidth: 1, borderColor: theme.color.warningBorder,
   },
-  dupIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F7ECC7', alignItems: 'center', justifyContent: 'center' },
+  dupIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(245,184,75,0.2)', alignItems: 'center', justifyContent: 'center' },
   dupTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface },
   dupSub: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
   dupCta: { color: theme.color.brand, fontWeight: '700', fontSize: 13 },
@@ -460,7 +495,7 @@ const styles = StyleSheet.create({
     marginHorizontal: theme.spacing.lg, marginTop: theme.spacing.md,
     backgroundColor: theme.color.brandTertiary, borderRadius: theme.radius.md, padding: theme.spacing.md,
   },
-  recurIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#D2DED6', alignItems: 'center', justifyContent: 'center' },
+  recurIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.color.brandTertiary, alignItems: 'center', justifyContent: 'center' },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.xl, marginTop: theme.spacing.xl, marginBottom: theme.spacing.sm },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurfaceSecondary },
   link: { color: theme.color.brand, fontSize: 13, fontWeight: '600' },
@@ -482,16 +517,16 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 20, fontWeight: '700', color: theme.color.onSurface },
   emptySub: { fontSize: 14, color: theme.color.onSurfaceTertiary, textAlign: 'center', marginTop: theme.spacing.sm, lineHeight: 20 },
   primaryBtn: { marginTop: theme.spacing.xl, backgroundColor: theme.color.brand, paddingHorizontal: theme.spacing.xl, paddingVertical: 14, borderRadius: theme.radius.md, minWidth: 220, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  primaryBtnText: { color: theme.color.onBrandPrimary, fontWeight: '700', fontSize: 15 },
   secondaryBtn: { marginTop: theme.spacing.md, paddingHorizontal: theme.spacing.xl, paddingVertical: 12 },
   secondaryBtnText: { color: theme.color.brand, fontWeight: '600', fontSize: 14 },
   muted: { color: theme.color.onSurfaceTertiary, textAlign: 'center', padding: theme.spacing.lg, fontSize: 13 },
   rangeRow: { paddingBottom: theme.spacing.md, marginBottom: theme.spacing.sm },
   rangeRowContent: { paddingHorizontal: theme.spacing.lg, gap: 8, alignItems: 'center' },
   rangeChip: { height: 34, paddingHorizontal: 14, borderRadius: 999, backgroundColor: theme.color.surfaceSecondary, borderWidth: 1, borderColor: theme.color.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  rangeChipActive: { backgroundColor: theme.color.surfaceInverse, borderColor: theme.color.surfaceInverse },
+  rangeChipActive: { backgroundColor: theme.color.brand, borderColor: theme.color.brand },
   rangeChipText: { fontSize: 13, color: theme.color.onSurfaceSecondary, fontWeight: '600' },
-  rangeChipTextActive: { color: '#fff' },
+  rangeChipTextActive: { color: theme.color.onBrandPrimary },
   acctSection: { marginTop: theme.spacing.md },
   totalBalCard: {
     marginHorizontal: theme.spacing.lg,
@@ -512,6 +547,7 @@ const styles = StyleSheet.create({
   acctDetailAvatarText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   acctDetailName: { fontSize: 14, fontWeight: '600', color: theme.color.onSurface },
   acctDetailMeta: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
+  balNote: { fontSize: 12, lineHeight: 17, color: theme.color.onSurfaceTertiary, marginTop: theme.spacing.md },
   acctDetailBalance: { fontSize: 15, fontWeight: '700', color: theme.color.onSurface },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: theme.spacing.xl },
   modalCard: { backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.lg, padding: theme.spacing.xl, width: '100%', maxWidth: 380 },
@@ -523,5 +559,5 @@ const styles = StyleSheet.create({
   modalSecondary: { paddingHorizontal: theme.spacing.lg, paddingVertical: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.surfaceTertiary },
   modalSecondaryText: { color: theme.color.onSurface, fontWeight: '600' },
   modalPrimary: { paddingHorizontal: theme.spacing.lg, paddingVertical: 12, borderRadius: theme.radius.md, backgroundColor: theme.color.brand },
-  modalPrimaryText: { color: '#fff', fontWeight: '700' },
+  modalPrimaryText: { color: theme.color.onBrandPrimary, fontWeight: '700' },
 });

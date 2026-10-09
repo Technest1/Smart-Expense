@@ -13,12 +13,14 @@ import { formatINR } from '@/src/theme';
 
 const ON_KEY = 'reminders_enabled';
 const DAYS_KEY = 'reminders_days_before';
+const MISSED_KEY = 'reminders_missed_alerts';
+const WEEKLY_KEY = 'reminders_weekly_summary';
 const SENT_KEY = 'reminders_sent';
 const CHANNEL = 'reminders';
 const HOUR = 9; // local time reminders fire at
 const LOOKAHEAD_DAYS = 35;
 
-export type ReminderSettings = { enabled: boolean; daysBefore: 1 | 3 | 7 };
+export type ReminderSettings = { enabled: boolean; daysBefore: 1 | 3 | 7; missedAlerts: boolean; weeklySummary: boolean };
 
 type Upcoming = { recurring_id: string; merchant: string; expected_amount: number; amount_type: string; expected_date: string; status: string };
 type Pattern = { id: string; notify?: boolean };
@@ -34,12 +36,16 @@ if (Platform.OS === 'android') {
 export async function getReminderSettings(): Promise<ReminderSettings> {
   const enabled = !!(await storage.getItem<boolean>(ON_KEY, false));
   const d = Number(await storage.getItem<number>(DAYS_KEY, 3));
-  return { enabled, daysBefore: (d === 1 || d === 7 ? d : 3) as 1 | 3 | 7 };
+  const missedAlerts = (await storage.getItem<boolean>(MISSED_KEY, true)) !== false;
+  const weeklySummary = !!(await storage.getItem<boolean>(WEEKLY_KEY, false));
+  return { enabled, daysBefore: (d === 1 || d === 7 ? d : 3) as 1 | 3 | 7, missedAlerts, weeklySummary };
 }
 
 export async function saveReminderSettings(s: ReminderSettings) {
   await storage.setItem(ON_KEY, s.enabled);
   await storage.setItem(DAYS_KEY, s.daysBefore);
+  await storage.setItem(MISSED_KEY, s.missedAlerts);
+  await storage.setItem(WEEKLY_KEY, s.weeklySummary);
 }
 
 /** Asks Android for notification permission (needed on Android 13+). Returns whether granted. */
@@ -103,6 +109,46 @@ export async function syncReminders(): Promise<number> {
       scheduled++;
     }
   }
+
+  // Missed payments: expected more than the grace period ago and still not seen. Alert once.
+  if (settings.missedAlerts) {
+    for (const u of up.items) {
+      if (u.status !== 'MISSED' || muted.has(u.recurring_id)) continue;
+      const key = `missed:${u.recurring_id}:${u.expected_date}`;
+      if (sent.includes(key)) continue;
+      const amount = (u.amount_type === 'VARIABLE' ? 'about ' : '') + formatINR(u.expected_amount);
+      const when = new Date(u.expected_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+      await Notifications.scheduleNotificationAsync({
+        content: { title: 'Expected payment not detected', body: `${u.merchant} (${amount}) was expected on ${when}. Open Moneta to review it.` },
+        trigger: null,
+      });
+      sent.push(key);
+      scheduled++;
+    }
+  }
+
+  // Weekly summary: every Monday 9am, what is expected over that week. Rebuilt on each sync.
+  if (settings.weeklySummary) {
+    const live = up.items.filter((u) => u.status === 'EXPECTED' && !muted.has(u.recurring_id));
+    for (let w = 0; w < 4; w++) {
+      const mon = new Date(now);
+      mon.setHours(HOUR, 0, 0, 0);
+      mon.setDate(mon.getDate() + ((8 - mon.getDay()) % 7 || 7) + w * 7); // next Monday, then weekly
+      const end = new Date(mon); end.setDate(end.getDate() + 7);
+      const inWeek = live.filter((u) => {
+        const d = new Date(u.expected_date + 'T12:00:00');
+        return d >= new Date(mon.getFullYear(), mon.getMonth(), mon.getDate()) && d < end;
+      });
+      const total = inWeek.reduce((sum, u) => sum + u.expected_amount, 0);
+      if (!inWeek.length || mon.getTime() <= now.getTime()) continue;
+      await Notifications.scheduleNotificationAsync({
+        content: { title: 'Your week ahead', body: `${formatINR(total)} in recurring payments is expected over the next 7 days (${inWeek.length} payment${inWeek.length > 1 ? 's' : ''}).` },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: mon, channelId: CHANNEL },
+      });
+      scheduled++;
+    }
+  }
+
   await storage.setItem(SENT_KEY, JSON.stringify(sent.slice(-100)));
   return scheduled;
 }

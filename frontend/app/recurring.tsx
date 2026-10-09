@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal, Switch, TextInput } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal, Switch } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/src/api/client';
@@ -13,7 +14,7 @@ type Pattern = {
   id: string; merchant: string; category: string; account: string | null; frequency: string;
   amount_type: 'FIXED' | 'VARIABLE'; expected_amount: number; amount_min: number; amount_max: number;
   next_date: string; confidence: 'HIGH' | 'MEDIUM' | 'LOW'; status: string; occurrence_count: number;
-  history: { date: string; amount: number }[]; notify?: boolean;
+  history: { date: string; amount: number }[]; notify?: boolean; last_date?: string; last_amount?: number;
 };
 type Upcoming = {
   recurring_id: string; merchant: string; category: string; account: string | null;
@@ -32,17 +33,23 @@ const fmtDate = (iso: string) =>
   new Date(iso + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 const FREQS = ['WEEKLY', 'FORTNIGHTLY', 'MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY'];
 const CATS = ['Food & Dining', 'Transport', 'Shopping', 'Groceries', 'Entertainment', 'Bills & Utilities', 'Health', 'Transfers', 'Uncategorized'];
+const UPCOMING_GROUPS: { key: 'date' | 'category' | 'account'; label: string }[] = [
+  { key: 'date', label: 'By date' }, { key: 'category', label: 'By category' }, { key: 'account', label: 'By account' },
+];
 const amountText = (a: number, type: string) => (type === 'VARIABLE' ? '~' : '') + formatINR(a);
 
 export default function RecurringScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
   const [patterns, setPatterns] = useState<Pattern[]>([]);
   const [days, setDays] = useState(30);
   const [sheet, setSheet] = useState<Pattern | null>(null);
-  const [rem, setRem] = useState<ReminderSettings>({ enabled: false, daysBefore: 3 });
+  const [rem, setRem] = useState<ReminderSettings>({ enabled: false, daysBefore: 3, missedAlerts: true, weeklySummary: false });
+  const [groupBy, setGroupBy] = useState<'date' | 'category' | 'account'>('date');
+  const [upSheet, setUpSheet] = useState<Upcoming | null>(null);
   const [editing, setEditing] = useState(false);
   const [fAmount, setFAmount] = useState('');
   const [fCat, setFCat] = useState('');
@@ -90,6 +97,22 @@ export default function RecurringScreen() {
       },
     ]);
 
+  const skipOccurrence = async (u: Upcoming) => {
+    setUpSheet(null);
+    try {
+      await apiFetch('/upcoming-expenses/skip', {
+        method: 'POST', body: JSON.stringify({ recurring_id: u.recurring_id, expected_date: u.expected_date }),
+      });
+    } catch {}
+    await load(days);
+  };
+  const patternOf = (u: Upcoming) => patterns.find((p) => p.id === u.recurring_id) || null;
+  const openPattern = (u: Upcoming, edit = false) => {
+    const p = patternOf(u);
+    setUpSheet(null);
+    if (p) { setSheet(p); if (edit) setTimeout(() => openEdit(p), 50); }
+  };
+
   const changeReminders = async (next: ReminderSettings) => {
     if (next.enabled && !(await ensureNotificationPermission())) {
       Alert.alert('Notifications are off', 'Allow notifications for Moneta in Android settings to get payment reminders.');
@@ -136,6 +159,33 @@ export default function RecurringScreen() {
     return sum + p.expected_amount * (perMonth[p.frequency] || 0);
   }, 0);
 
+  const grouped = Object.entries(
+    upcoming.reduce((acc: Record<string, { total: number; items: Upcoming[] }>, u) => {
+      const key = groupBy === 'category' ? u.category : u.account || 'Cash / other';
+      const g = acc[key] || (acc[key] = { total: 0, items: [] });
+      g.items.push(u);
+      if (u.status === 'EXPECTED') g.total += u.expected_amount;
+      return acc;
+    }, {}),
+  ).sort((a, b) => b[1].total - a[1].total);
+
+  const UpRow = ({ u, i }: { u: Upcoming; i: number }) => (
+    <Pressable testID={`upcoming-row-${i}`} onPress={() => setUpSheet(u)} style={styles.row}>
+      <View style={styles.dateBox}>
+        <Text style={styles.dateText}>{fmtDate(u.expected_date)}</Text>
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.rowTitle}>{u.merchant}</Text>
+        <Text style={styles.rowSub}>
+          {u.status === 'MISSED' ? 'Not detected yet' : u.category}{u.account ? ` • ${u.account}` : ''}
+        </Text>
+      </View>
+      <Text style={[styles.rowAmt, u.status === 'MISSED' && { color: theme.color.warning }]}>
+        {amountText(u.expected_amount, u.amount_type)}
+      </Text>
+    </Pressable>
+  );
+
   const Row = ({ p }: { p: Pattern }) => {
     const color = CATEGORY_COLORS[p.category] || theme.color.brand;
     return (
@@ -156,7 +206,7 @@ export default function RecurringScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="recurring-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="recurring-screen">
       <View style={styles.topBar}>
         <Pressable testID="recurring-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />
@@ -190,11 +240,23 @@ export default function RecurringScreen() {
                 trackColor={{ true: theme.color.brand }} />
             </View>
             {rem.enabled && (
+              <View style={{ marginTop: theme.spacing.md, gap: 4 }}>
+                <View style={styles.switchRow}>
+                  <Text style={[styles.rowSub, { flex: 1, marginTop: 0 }]}>Alert me when an expected payment doesn't show up</Text>
+                  <Switch testID="missed-switch" value={rem.missedAlerts} onValueChange={(v) => changeReminders({ ...rem, missedAlerts: v })} trackColor={{ true: theme.color.brand }} />
+                </View>
+                <View style={styles.switchRow}>
+                  <Text style={[styles.rowSub, { flex: 1, marginTop: 0 }]}>Monday summary of the week ahead</Text>
+                  <Switch testID="weekly-switch" value={rem.weeklySummary} onValueChange={(v) => changeReminders({ ...rem, weeklySummary: v })} trackColor={{ true: theme.color.brand }} />
+                </View>
+              </View>
+            )}
+            {rem.enabled && (
               <View style={[styles.chips, { marginTop: theme.spacing.md, marginBottom: 0 }]}>
                 {([1, 3, 7] as const).map((d) => (
                   <Pressable key={d} testID={`reminder-days-${d}`} onPress={() => changeReminders({ ...rem, daysBefore: d })}
                     style={[styles.chip, rem.daysBefore === d && styles.chipOn]}>
-                    <Text style={[styles.chipText, rem.daysBefore === d && { color: '#fff' }]}>{d} day{d > 1 ? 's' : ''} before</Text>
+                    <Text style={[styles.chipText, rem.daysBefore === d && { color: theme.color.onBrandPrimary }]}>{d} day{d > 1 ? 's' : ''} before</Text>
                   </Pressable>
                 ))}
               </View>
@@ -205,7 +267,14 @@ export default function RecurringScreen() {
           <View style={styles.chips}>
             {[7, 30, 90].map(d => (
               <Pressable key={d} testID={`upcoming-range-${d}`} onPress={() => setDays(d)} style={[styles.chip, days === d && styles.chipOn]}>
-                <Text style={[styles.chipText, days === d && { color: '#fff' }]}>{d} days</Text>
+                <Text style={[styles.chipText, days === d && { color: theme.color.onBrandPrimary }]}>{d} days</Text>
+              </Pressable>
+            ))}
+          </View>
+          <View style={styles.chips}>
+            {UPCOMING_GROUPS.map((g) => (
+              <Pressable key={g.key} testID={`upcoming-group-${g.key}`} onPress={() => setGroupBy(g.key)} style={[styles.chipSm, groupBy === g.key && styles.chipOn]}>
+                <Text style={[styles.chipSmText, groupBy === g.key && { color: theme.color.onBrandPrimary }]}>{g.label}</Text>
               </Pressable>
             ))}
           </View>
@@ -213,23 +282,20 @@ export default function RecurringScreen() {
             <Text style={styles.empty}>
               No upcoming payments yet. Once a payment repeats a few times it shows up here.
             </Text>
-          ) : upcoming.map((u, i) => (
-            <Pressable key={u.recurring_id + u.expected_date} testID={`upcoming-row-${i}`} onLongPress={() => skip(u)} onPress={() => skip(u)} style={styles.row}>
-              <View style={styles.dateBox}>
-                <Text style={styles.dateText}>{fmtDate(u.expected_date)}</Text>
+          ) : groupBy === 'date' ? (
+            upcoming.map((u, i) => <UpRow key={u.recurring_id + u.expected_date} u={u} i={i} />)
+          ) : (
+            grouped.map(([name, g]) => (
+              <View key={name} style={{ marginBottom: theme.spacing.sm }} testID={`upcoming-group-${name}`}>
+                <View style={styles.groupHead}>
+                  <Text style={styles.groupName}>{name}</Text>
+                  <Text style={styles.groupTotal}>{formatINR(g.total)} • {g.items.length}</Text>
+                </View>
+                {g.items.map((u, i) => <UpRow key={u.recurring_id + u.expected_date} u={u} i={i} />)}
               </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.rowTitle}>{u.merchant}</Text>
-                <Text style={styles.rowSub}>
-                  {u.status === 'MISSED' ? 'Not detected yet' : u.category}{u.account ? ` • ${u.account}` : ''}
-                </Text>
-              </View>
-              <Text style={[styles.rowAmt, u.status === 'MISSED' && { color: theme.color.warning }]}>
-                {amountText(u.expected_amount, u.amount_type)}
-              </Text>
-            </Pressable>
-          ))}
-          {upcoming.length > 0 && <Text style={styles.note}>Tap a payment to skip it once.</Text>}
+            ))
+          )}
+          {upcoming.length > 0 && <Text style={styles.note}>Tap a payment for details, or to skip it once.</Text>}
 
           <Text style={styles.section}>
             ACTIVE{active.length ? ` • ~${formatINR(monthlyTotal)} / month` : ''}
@@ -251,10 +317,59 @@ export default function RecurringScreen() {
         </ScrollView>
       )}
 
+
+      <Modal visible={!!upSheet} transparent animationType="slide" onRequestClose={() => setUpSheet(null)}>
+        <Pressable style={styles.backdrop} onPress={() => setUpSheet(null)}>
+          {upSheet && (() => {
+            const p = patternOf(upSheet);
+            const missed = upSheet.status === 'MISSED';
+            return (
+              <Pressable style={[styles.sheet, { paddingBottom: 32 + insets.bottom }]} testID="upcoming-sheet">
+                <Text style={styles.sheetTitle}>{upSheet.merchant}</Text>
+                <Text style={styles.rowSub}>{missed ? 'Expected payment not detected' : 'Upcoming payment'}</Text>
+                <View style={{ marginTop: theme.spacing.md }}>
+                  {([
+                    ['Expected amount', (upSheet.amount_type === 'VARIABLE' ? 'About ' : '') + formatINR(upSheet.expected_amount)],
+                    ['Expected date', new Date(upSheet.expected_date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })],
+                    ['Account', upSheet.account || 'Not linked'],
+                    ['Category', upSheet.category],
+                    ['Source', 'Recurring pattern'],
+                    ['Status', missed ? 'Missed (past the grace period)' : 'Expected'],
+                    ...(p && p.amount_type === 'VARIABLE' ? [['Usual range', `${formatINR(p.amount_min)} – ${formatINR(p.amount_max)}`]] : []),
+                    ...(p && p.last_amount ? [['Last payment', `${formatINR(p.last_amount)}${p.last_date ? ' on ' + fmtDate(p.last_date) : ''}`]] : []),
+                  ] as [string, string][]).map(([k, v]) => (
+                    <View key={k} style={styles.histRow}>
+                      <Text style={styles.rowSub}>{k}</Text>
+                      <Text style={[styles.rowSub, { color: theme.color.onSurface, flexShrink: 1, textAlign: 'right' }]}>{v}</Text>
+                    </View>
+                  ))}
+                </View>
+                <View style={{ marginTop: theme.spacing.md, gap: 8 }}>
+                  {missed ? (
+                    <>
+                      <Btn id="paid-manually" label="Paid manually" primary onPress={() => skipOccurrence(upSheet)} />
+                      <Btn id="date-changed" label="Date changed" onPress={() => openPattern(upSheet, true)} />
+                      <Btn id="skip-occurrence" label="Skip this occurrence" onPress={() => skipOccurrence(upSheet)} />
+                      <Btn id="not-recurring" label="Not recurring anymore" danger onPress={async () => { const u = upSheet; setUpSheet(null); try { await apiFetch(`/recurring-payments/${u.recurring_id}/dismiss`, { method: 'POST' }); } catch {} await load(days); }} />
+                    </>
+                  ) : (
+                    <>
+                      <Btn id="skip-payment" label="Skip this payment" onPress={() => skipOccurrence(upSheet)} />
+                      <Btn id="open-recurring" label="Open recurring payment" onPress={() => openPattern(upSheet)} />
+                    </>
+                  )}
+                  <Btn id="close-upcoming" label="Close" onPress={() => setUpSheet(null)} />
+                </View>
+              </Pressable>
+            );
+          })()}
+        </Pressable>
+      </Modal>
+
       <Modal visible={!!sheet} transparent animationType="slide" onRequestClose={() => { setEditing(false); setSheet(null); }}>
         <Pressable style={styles.backdrop} onPress={() => { setEditing(false); setSheet(null); }}>
           {sheet && (
-            <Pressable style={styles.sheet} testID="recurring-sheet">
+            <Pressable style={[styles.sheet, { paddingBottom: 32 + insets.bottom }]} testID="recurring-sheet">
               <Text style={styles.sheetTitle}>{sheet.merchant}</Text>
               <Text style={styles.rowSub}>
                 {amountText(sheet.expected_amount, sheet.amount_type)} / {PER[sheet.frequency]} • {sheet.category}
@@ -280,7 +395,7 @@ export default function RecurringScreen() {
                   <View style={styles.wrap}>
                     {FREQS.map((f) => (
                       <Pressable key={f} testID={`edit-freq-${f}`} onPress={() => setFFreq(f)} style={[styles.chip, fFreq === f && styles.chipOn]}>
-                        <Text style={[styles.chipText, fFreq === f && { color: '#fff' }]}>{f === 'HALF_YEARLY' ? 'Half-yearly' : f[0] + f.slice(1).toLowerCase()}</Text>
+                        <Text style={[styles.chipText, fFreq === f && { color: theme.color.onBrandPrimary }]}>{f === 'HALF_YEARLY' ? 'Half-yearly' : f[0] + f.slice(1).toLowerCase()}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -288,7 +403,7 @@ export default function RecurringScreen() {
                   <View style={styles.wrap}>
                     {CATS.map((c) => (
                       <Pressable key={c} testID={`edit-cat-${c}`} onPress={() => setFCat(c)} style={[styles.chip, fCat === c && styles.chipOn]}>
-                        <Text style={[styles.chipText, fCat === c && { color: '#fff' }]}>{c}</Text>
+                        <Text style={[styles.chipText, fCat === c && { color: theme.color.onBrandPrimary }]}>{c}</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -324,7 +439,7 @@ function Btn({ id, label, onPress, primary, danger }: { id: string; label: strin
   return (
     <Pressable testID={`recurring-${id}`} onPress={onPress}
       style={[styles.btn, primary && { backgroundColor: theme.color.brand, borderColor: theme.color.brand }]}>
-      <Text style={[styles.btnText, primary && { color: '#fff' }, danger && { color: theme.color.error }]}>{label}</Text>
+      <Text style={[styles.btnText, primary && { color: theme.color.onBrandPrimary }, danger && { color: theme.color.error }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -360,6 +475,12 @@ const styles = StyleSheet.create({
   histRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
   btn: { borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, paddingVertical: 13, alignItems: 'center' },
   remCard: { marginTop: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.md, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.color.border },
+  groupHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: theme.spacing.sm, marginBottom: 6 },
+  groupName: { fontSize: 14, fontFamily: theme.fontFamily.semibold, color: theme.color.onSurface },
+  groupTotal: { fontSize: 12, color: theme.color.onSurfaceTertiary },
+  chipSm: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.pill, borderWidth: 1, borderColor: theme.color.borderStrong, backgroundColor: theme.color.surfaceSecondary },
+  chipSmText: { fontSize: 12, color: theme.color.onSurface, fontWeight: '600' },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: theme.color.onSurfaceTertiary, marginTop: theme.spacing.md, marginBottom: 6 },
   input: { borderWidth: 1, borderColor: theme.color.borderStrong, borderRadius: theme.radius.md, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15, color: theme.color.onSurface, backgroundColor: theme.color.surfaceSecondary },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, RefreshControl } from 'react-native';
+import { View, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, RefreshControl } from 'react-native';
+import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,8 +59,8 @@ export default function TransactionsScreen() {
             testID="dup-filter-toggle"
             onPress={() => setShowDupsOnly(v => !v)}
             style={[styles.dupToggle, showDupsOnly && styles.dupToggleActive]}>
-            <Ionicons name="alert-circle-outline" size={16} color={showDupsOnly ? '#fff' : theme.color.warning} />
-            <Text style={[styles.dupToggleText, showDupsOnly && { color: '#fff' }]}>Duplicates</Text>
+            <Ionicons name="alert-circle-outline" size={16} color={showDupsOnly ? theme.color.onBrandPrimary : theme.color.warning} />
+            <Text style={[styles.dupToggleText, showDupsOnly && { color: theme.color.onBrandPrimary }]}>Duplicates</Text>
           </Pressable>
         </View>
 
@@ -145,7 +146,7 @@ export default function TransactionsScreen() {
         testID="add-transaction-fab"
         onPress={() => router.push('/transaction/new')}
         style={styles.fab}>
-        <Ionicons name="add" size={26} color="#fff" />
+        <Ionicons name="add" size={26} color={theme.color.onBrandPrimary} />
       </Pressable>
     </SafeAreaView>
   );
@@ -156,7 +157,7 @@ const styles = StyleSheet.create({
   stickyHeader: { backgroundColor: theme.color.surface, paddingTop: theme.spacing.md, paddingBottom: theme.spacing.sm },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacing.xl, marginBottom: theme.spacing.md },
   title: { fontSize: 22, fontWeight: '700', color: theme.color.onSurface },
-  dupToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FDF6E6', borderColor: '#F3E1B2', borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  dupToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.color.warningSurface, borderColor: theme.color.warningBorder, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
   dupToggleActive: { backgroundColor: theme.color.warning, borderColor: theme.color.warning },
   dupToggleText: { fontSize: 12, fontWeight: '700', color: theme.color.warning },
   chipRow: { height: 56 },
@@ -164,7 +165,7 @@ const styles = StyleSheet.create({
   chip: { height: 36, paddingHorizontal: 14, borderRadius: 999, backgroundColor: theme.color.surfaceSecondary, borderWidth: 1, borderColor: theme.color.border, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
   chipActive: { backgroundColor: theme.color.brand, borderColor: theme.color.brand },
   chipText: { fontSize: 13, color: theme.color.onSurfaceSecondary, fontWeight: '600' },
-  chipTextActive: { color: '#fff' },
+  chipTextActive: { color: theme.color.onBrandPrimary },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   emptyText: { color: theme.color.onSurfaceTertiary, fontSize: 14 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: theme.color.surfaceSecondary, padding: theme.spacing.md, borderRadius: theme.radius.md, marginBottom: theme.spacing.sm },
@@ -173,7 +174,7 @@ const styles = StyleSheet.create({
   meta: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
   amount: { fontSize: 15, fontWeight: '700' },
   dupBadge: { backgroundColor: theme.color.warning, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4 },
-  dupBadgeText: { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  dupBadgeText: { color: theme.color.onBrandPrimary, fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
   fab: {
     position: 'absolute', right: theme.spacing.lg, bottom: theme.spacing.lg,
     width: 56, height: 56, borderRadius: 28, backgroundColor: theme.color.brand,

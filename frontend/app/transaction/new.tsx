@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -62,7 +63,7 @@ export default function AddManualTransaction() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="add-transaction-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="add-transaction-screen">
       <View style={styles.topBar}>
         <Pressable testID="add-txn-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />
@@ -141,7 +142,7 @@ export default function AddManualTransaction() {
             onPress={submit}
             disabled={!canSubmit}
             style={[styles.primaryBtn, !canSubmit && { opacity: 0.5 }]}>
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Save transaction</Text>}
+            {submitting ? <ActivityIndicator color={theme.color.onBrandPrimary} /> : <Text style={styles.primaryBtnText}>Save transaction</Text>}
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -165,7 +166,7 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: theme.color.surfaceSecondary, borderWidth: 1, borderColor: theme.color.border },
   chipActive: { backgroundColor: theme.color.brand, borderColor: theme.color.brand },
   chipText: { fontSize: 13, color: theme.color.onSurfaceSecondary, fontWeight: '600' },
-  chipTextActive: { color: '#fff' },
+  chipTextActive: { color: theme.color.onBrandPrimary },
   primaryBtn: { marginTop: theme.spacing['2xl'], backgroundColor: theme.color.brand, paddingVertical: 14, borderRadius: theme.radius.md, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  primaryBtnText: { color: theme.color.onBrandPrimary, fontSize: 15, fontWeight: '700' },
 });

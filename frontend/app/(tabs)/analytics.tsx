@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Dimensions, RefreshControl, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, ActivityIndicator, Dimensions, RefreshControl, Pressable } from 'react-native';
+import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import Svg, { Circle, G, Rect, Text as SvgText } from 'react-native-svg';
@@ -190,8 +191,8 @@ function DonutChart({ data, total }: { data: CatItem[]; total: number }) {
           return el;
         })}
       </G>
-      <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="10" fill={theme.color.onSurfaceTertiary}>SPENT</SvgText>
-      <SvgText x={size / 2} y={size / 2 + 16} textAnchor="middle" fontSize="16" fontWeight="700" fill={theme.color.onSurface}>{formatINR(sum)}</SvgText>
+      <SvgText x={size / 2} y={size / 2 - 2} textAnchor="middle" fontSize="10" fontFamily={theme.fontFamily.medium} fill={theme.color.onSurfaceTertiary}>SPENT</SvgText>
+      <SvgText x={size / 2} y={size / 2 + 16} textAnchor="middle" fontSize="16" fontFamily={theme.fontFamily.bold} fill={theme.color.onSurface}>{formatINR(sum)}</SvgText>
     </Svg>
   );
 }
@@ -212,9 +213,9 @@ function MonthlyBars({ data }: { data: { label: string; amount: number }[] }) {
           return (
             <G key={i}>
               <Rect x={x} y={y} width={barW} height={Math.max(h, 2)} rx={6} fill={i === data.length - 1 ? theme.color.brand : theme.color.brandSecondary} />
-              <SvgText x={x + barW / 2} y={chartH + 14} textAnchor="middle" fontSize="10" fill={theme.color.onSurfaceTertiary}>{d.label}</SvgText>
+              <SvgText x={x + barW / 2} y={chartH + 14} textAnchor="middle" fontSize="10" fontFamily={theme.fontFamily.medium} fill={theme.color.onSurfaceTertiary}>{d.label}</SvgText>
               {d.amount > 0 && (
-                <SvgText x={x + barW / 2} y={Math.max(y - 4, 10)} textAnchor="middle" fontSize="9" fill={theme.color.onSurfaceSecondary}>
+                <SvgText x={x + barW / 2} y={Math.max(y - 4, 10)} textAnchor="middle" fontSize="9" fontFamily={theme.fontFamily.medium} fill={theme.color.onSurfaceSecondary}>
                   {d.amount >= 1000 ? `${Math.round(d.amount / 1000)}k` : Math.round(d.amount)}
                 </SvgText>
               )}

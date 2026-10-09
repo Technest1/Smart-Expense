@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert } from 'react-native';
+import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,7 +69,7 @@ export default function TransactionDetail() {
   const color = CATEGORY_COLORS[txn.category] || theme.color.brand;
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="txn-detail-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="txn-detail-screen">
       <View style={styles.topBar}>
         <Pressable testID="back-button" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />
@@ -171,7 +172,7 @@ const styles = StyleSheet.create({
   merchant: { fontSize: 20, fontWeight: '700', color: theme.color.onSurface },
   amount: { fontSize: 36, fontWeight: '700', marginTop: theme.spacing.xs, letterSpacing: -1 },
   date: { color: theme.color.onSurfaceTertiary, marginTop: theme.spacing.xs, fontSize: 13 },
-  dupCard: { marginHorizontal: theme.spacing.lg, backgroundColor: '#FDF6E6', borderColor: '#F3E1B2', borderWidth: 1, borderRadius: theme.radius.md, padding: theme.spacing.md, flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: theme.spacing.md },
+  dupCard: { marginHorizontal: theme.spacing.lg, backgroundColor: theme.color.warningSurface, borderColor: theme.color.warningBorder, borderWidth: 1, borderRadius: theme.radius.md, padding: theme.spacing.md, flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: theme.spacing.md },
   dupText: { color: theme.color.warning, fontWeight: '700', fontSize: 13 },
   card: { marginHorizontal: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.md, paddingHorizontal: theme.spacing.md },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: theme.spacing.md, gap: 12 },

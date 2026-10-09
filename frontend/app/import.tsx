@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { View, StyleSheet, Pressable, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Text, TextInput } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -37,7 +38,7 @@ export default function ImportScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="import-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="import-screen">
       <View style={styles.topBar}>
         <Pressable testID="import-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />
@@ -84,7 +85,7 @@ export default function ImportScreen() {
             onPress={doImport}
             disabled={busy || !text.trim()}
             style={[styles.primaryBtn, (!text.trim() || busy) && { opacity: 0.5 }]}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Parse & Save</Text>}
+            {busy ? <ActivityIndicator color={theme.color.onBrandPrimary} /> : <Text style={styles.primaryBtnText}>Parse & Save</Text>}
           </Pressable>
 
           {result && (
@@ -126,7 +127,7 @@ const styles = StyleSheet.create({
   segTextActive: { color: theme.color.onSurface },
   textarea: { minHeight: 200, textAlignVertical: 'top', backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.md, padding: theme.spacing.md, fontSize: 14, color: theme.color.onSurface, borderWidth: 1, borderColor: theme.color.border },
   primaryBtn: { marginTop: theme.spacing.lg, backgroundColor: theme.color.brand, paddingVertical: 14, borderRadius: theme.radius.md, alignItems: 'center' },
-  primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  primaryBtnText: { color: theme.color.onBrandPrimary, fontSize: 15, fontWeight: '700' },
   resultCard: { marginTop: theme.spacing.lg, backgroundColor: theme.color.surfaceSecondary, padding: theme.spacing.lg, borderRadius: theme.radius.md, gap: 8 },
   resultTitle: { fontSize: 14, fontWeight: '700', color: theme.color.onSurface, marginBottom: theme.spacing.sm },
   resultRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
