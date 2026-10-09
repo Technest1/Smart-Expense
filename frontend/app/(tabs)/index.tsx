@@ -58,7 +58,7 @@ export default function Dashboard() {
   const [upcoming, setUpcoming] = useState<UpcomingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [rangeKey, setRangeKey] = useState<string>('month');
+  const [rangeKey, setRangeKey] = useState<string>('today'); // opens on Today at every sign-in
   const [customModal, setCustomModal] = useState(false);
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -147,7 +147,7 @@ export default function Dashboard() {
   }
 
   const catTotal = (data?.by_category || []).reduce((s, x) => s + x.amount, 0);
-  const currentLabel = data?.range?.label || 'This month';
+  const currentLabel = data?.range?.label || 'Today';
 
   return (
     <SafeAreaView style={styles.root} edges={['top']} testID="dashboard-screen">
@@ -291,11 +291,19 @@ export default function Dashboard() {
             <View style={styles.emptyIcon}>
               <Ionicons name="wallet-outline" size={40} color={theme.color.brand} />
             </View>
-            <Text style={styles.emptyTitle}>No transactions yet</Text>
-            <Text style={styles.emptySub}>
-              Connect your SMS to start tracking your spending automatically, or paste a bank message to add it by hand.
+            <Text style={styles.emptyTitle}>
+              {rangeKey === 'all' ? 'No transactions yet' : `Nothing recorded ${currentLabel.toLowerCase()}`}
             </Text>
-            {Platform.OS === 'android' && (
+            <Text style={styles.emptySub}>
+              {rangeKey === 'all'
+                ? 'Connect your SMS to start tracking your spending automatically, or paste a bank message to add it by hand.'
+                : 'New spending appears here as soon as a bank message arrives. Look at a wider range to see earlier activity.'}
+            </Text>
+            {rangeKey !== 'all' ? (
+              <Pressable testID="show-all-time-button" onPress={() => setRangeKey('all')} style={styles.primaryBtn}>
+                <Text style={styles.primaryBtnText}>Show all time</Text>
+              </Pressable>
+            ) : Platform.OS === 'android' && (
               <Pressable testID="connect-sms-empty-button" onPress={() => router.push('/sms-sync?auto=1')} style={styles.primaryBtn}>
                 <Text style={styles.primaryBtnText}>Connect SMS to start tracking</Text>
               </Pressable>
