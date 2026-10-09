@@ -1,5 +1,6 @@
 """ExpenseSync backend tests — auth, ingest, dedup, transactions, dashboard."""
 import pytest
+from sample_messages import seed_payload
 import requests
 from datetime import datetime, timezone
 
@@ -66,7 +67,6 @@ class TestAuthEnforcement:
         ("GET", "/api/transactions"),
         ("GET", "/api/dashboard"),
         ("POST", "/api/messages/ingest"),
-        ("POST", "/api/messages/seed-sample"),
     ])
     def test_no_auth_returns_401(self, api, method, path):
         r = api.request(method, f"{BASE_URL}{path}", json={"items": []} if method == "POST" else None)
@@ -75,7 +75,6 @@ class TestAuthEnforcement:
     @pytest.mark.parametrize("method,path", [
         ("GET", "/api/transactions"),
         ("GET", "/api/dashboard"),
-        ("POST", "/api/messages/seed-sample"),
     ])
     def test_bad_bearer_returns_401(self, api, method, path):
         headers = {"Authorization": "Bearer garbage-token-999", "Content-Type": "application/json"}
@@ -87,7 +86,7 @@ class TestAuthEnforcement:
 # ---------------- Seed sample ----------------
 class TestSeedSample:
     def test_seed_produces_expected_counts(self, api, auth_headers, clean_txns):
-        r = api.post(f"{BASE_URL}/api/messages/seed-sample", headers=auth_headers)
+        r = api.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers, json=seed_payload())
         assert r.status_code == 200, r.text
         body = r.json()
         # PRD: ~10 saved + 1 duplicate + 1 skipped
@@ -218,7 +217,7 @@ class TestDedup:
 class TestTransactionsCRUD:
     @pytest.fixture
     def seeded(self, api, auth_headers, clean_txns):
-        r = api.post(f"{BASE_URL}/api/messages/seed-sample", headers=auth_headers)
+        r = api.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers, json=seed_payload())
         assert r.status_code == 200
         return api.get(f"{BASE_URL}/api/transactions", headers=auth_headers).json()["items"]
 
@@ -286,7 +285,7 @@ class TestTransactionsCRUD:
 class TestDashboard:
     def test_dashboard_shape_and_exclusions(self, api, auth_headers, clean_txns):
         # Seed data
-        r = api.post(f"{BASE_URL}/api/messages/seed-sample", headers=auth_headers)
+        r = api.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers, json=seed_payload())
         assert r.status_code == 200
         d = api.get(f"{BASE_URL}/api/dashboard", headers=auth_headers)
         assert d.status_code == 200, d.text

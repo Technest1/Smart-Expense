@@ -617,55 +617,6 @@ async def ingest_messages(payload: IngestRequest, authorization: Optional[str] =
             skipped += 1
     return {"saved": saved, "duplicates": duplicates, "skipped": skipped, "results": results}
 
-# ================= SEED SAMPLE =================
-SAMPLE_MESSAGES = [
-    # SMS - HDFC debit with balance
-    ("sms", "HDFC Bank: Rs.499.00 debited from a/c XX1234 on 12-05-25 to SWIGGY BANGALORE. UPI Ref 512345678901. Avl Bal: Rs.24,501.50. Not you? Call 18002586161",
-     -1),
-    # SMS - ICICI credit with balance
-    ("sms", "ICICI Bank Acct XX5678 credited with INR 25000.00 on 10-05-25; UPI:512300110022 from JOHN DOE. Available Bal INR 41,234.55",
-     -3),
-    # SMS - UPI to Uber (Axis) with balance
-    ("sms", "Rs 285.00 debited via UPI to UBER INDIA. Ref no 512456789012 on 11-05-25. Avl Bal Rs.12,455.00 -Axis Bank",
-     -2),
-    # SMS - Amazon debit on credit card (no balance)
-    ("sms", "Your HDFC Credit Card XX9012 was used for Rs.1,299.00 at AMAZON on 09-05-25. Ref: 987654321",
-     -4),
-    # Duplicate of Swiggy (different ref, same amount/merchant/date)
-    ("sms", "Rs.499.00 spent on HDFC Bank Card XX1234 at SWIGGY on 12-05-25. Avl Lmt: Rs.45000",
-     -1),
-    # SMS - Airtel bill (SBI) with balance
-    ("sms", "Rs.899 debited from your account XX3344 for AIRTEL POSTPAID BILL. Ref: AIRT88291. Avl Bal Rs.8,201.00 -SBI",
-     -5),
-    # Email - Netflix
-    ("email", "Payment received for Netflix Premium subscription. Amount: INR 649.00 charged to card ending 4432 on 08-05-2025. Reference NTFX20250508.",
-     -6),
-    # Email - Flipkart
-    ("email", "Your Flipkart order was placed. Rs. 2,499.00 paid via UPI on 07-05-2025. Transaction reference FKPKT7788221.",
-     -7),
-    # SMS - Zomato
-    ("sms", "Rs. 342 spent at ZOMATO via UPI on 06-05-25. UPI Ref 501122334455. Avl Bal Rs.23,860.50 -HDFC",
-     -8),
-    # SMS - Promotional (should skip)
-    ("sms", "Get 50% cashback up to Rs.500 on your next purchase. T&C apply. -Paytm",
-     -1),
-    # Email - Salary credit
-    ("email", "Your salary of INR 85000.00 has been credited to a/c XX5678 on 01-05-2025. Available Balance INR 126,234.55. Reference SAL20250501.",
-     -11),
-    # SMS - Metro (ICICI)
-    ("sms", "Rs.60 debited via UPI to DMRC METRO on 12-05-25. UPI Ref 500987654321. Avl Bal Rs.41,174.55 -ICICI",
-     -1),
-]
-
-@api_router.post("/messages/seed-sample")
-async def seed_sample(authorization: Optional[str] = Header(None)):
-    user = await get_current_user(authorization)
-    now = datetime.now(timezone.utc)
-    items = []
-    for src, txt, day_offset in SAMPLE_MESSAGES:
-        items.append(IngestItem(source=src, text=txt, received_at=now + timedelta(days=day_offset)))
-    return await ingest_messages(IngestRequest(items=items), authorization=authorization)
-
 # ================= TRANSACTIONS =================
 @api_router.post("/transactions")
 async def create_manual_transaction(payload: ManualTransactionCreate, authorization: Optional[str] = Header(None)):
@@ -1380,6 +1331,33 @@ async def privacy_policy():
 async def delete_account_page():
     return DELETE_ACCOUNT_HTML
 
+# ---------- ONE-TIME DATA REPAIR ----------
+async def repair_balances() -> int:
+    """Re-read each stored message's balance with the current BALANCE_RE and fix the ones that
+    differ. Older parsers cut an unformatted balance short (126434.00 stored as 126), which
+    cannot be repaired from the phone. Runs once (flag in `migrations`); safe to re-run: it only
+    changes values that differ and touches nothing else."""
+    if await db.migrations.find_one({"name": "balance_reparse_v1"}):
+        return 0
+    fixed = 0
+    cursor = db.transactions.find({"raw_text": {"$regex": "bal", "$options": "i"}},
+                                  {"_id": 1, "raw_text": 1, "balance_after": 1})
+    async for t in cursor:
+        bm = BALANCE_RE.search(t.get("raw_text") or "")
+        if not bm:
+            continue
+        try:
+            new = float(bm.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        if new != t.get("balance_after"):
+            await db.transactions.update_one({"_id": t["_id"]}, {"$set": {"balance_after": new}})
+            fixed += 1
+    await db.migrations.insert_one({"name": "balance_reparse_v1", "fixed": fixed,
+                                    "at": datetime.now(timezone.utc)})
+    logger.info(f"balance_reparse_v1: fixed {fixed} stored balances")
+    return fixed
+
 # ---------- STARTUP ----------
 @app.on_event("startup")
 async def startup():
@@ -1395,6 +1373,10 @@ async def startup():
     await db.transactions.create_index([("user_id", 1), ("ref_id", 1)])
     await db.budgets.create_index([("user_id", 1), ("category", 1)], unique=True)
     logger.info("Indexes ready.")
+    try:
+        await repair_balances()
+    except Exception as e:  # never block startup on a data repair
+        logger.warning(f"balance repair skipped: {e}")
     asyncio.create_task(gmail_sync_loop())
 
 app.include_router(api_router)

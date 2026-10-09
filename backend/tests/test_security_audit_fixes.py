@@ -15,6 +15,7 @@ import re
 import time
 from pathlib import Path
 import pytest
+from sample_messages import seed_payload
 import requests
 
 BASE_URL = os.environ["EXPO_PUBLIC_BACKEND_URL"].rstrip("/")
@@ -136,7 +137,7 @@ class TestCORSNoCredentials:
 class TestTxnListLimitClamp:
     def test_huge_limit_is_clamped(self, auth_headers, clean_txns):
         # Seed some txns via seed-sample so response has items
-        r_seed = requests.post(f"{BASE_URL}/api/messages/seed-sample", headers=auth_headers)
+        r_seed = requests.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers, json=seed_payload())
         assert r_seed.status_code == 200, r_seed.text
 
         r = requests.get(f"{BASE_URL}/api/transactions?limit=99999", headers=auth_headers)
@@ -155,7 +156,7 @@ class TestTxnListLimitClamp:
 # ---------------------------------------------------------------
 class TestSprint1Regression:
     def test_seed_dashboard_list_patch(self, auth_headers, clean_txns):
-        r_seed = requests.post(f"{BASE_URL}/api/messages/seed-sample", headers=auth_headers)
+        r_seed = requests.post(f"{BASE_URL}/api/messages/ingest", headers=auth_headers, json=seed_payload())
         assert r_seed.status_code == 200, r_seed.text
         body = r_seed.json()
         assert body["saved"] >= 1
@@ -250,7 +251,6 @@ class TestAuthEnforcement:
         ("/api/analytics/monthly-trend", "GET"),
         ("/api/analytics/recurring", "GET"),
         ("/api/messages/ingest", "POST"),
-        ("/api/messages/seed-sample", "POST"),
     ])
     def test_missing_bearer_returns_401(self, path, method):
         fn = getattr(requests, method.lower())
