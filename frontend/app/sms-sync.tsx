@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal, Alert } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal, Alert, useWindowDimensions } from 'react-native';
 import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -19,6 +19,7 @@ import { SyncOverlay } from '@/src/ui/SyncIndicators';
  */
 export default function SmsSyncScreen() {
   const router = useRouter();
+  const { height: winH } = useWindowDimensions();
   // ?auto=1: opened by the dashboard's first-run prompt — show the disclosure right away and
   // head back to the dashboard once the first sync is done.
   const { auto } = useLocalSearchParams<{ auto?: string }>();
@@ -203,7 +204,7 @@ export default function SmsSyncScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard} testID="sms-disclosure">
             <Text style={styles.modalTitle}>Allow Moneta to read your SMS?</Text>
-            <ScrollView style={{ maxHeight: 340 }}>
+            <ScrollView style={{ maxHeight: Math.max(340, Math.min(560, winH * 0.58)) }}>
               <Text style={styles.modalBody}>
                 Moneta is an expense and budget tracker. To add your spending automatically,
                 it needs to read the SMS messages on your phone, including new messages as they arrive, even when the app is closed.

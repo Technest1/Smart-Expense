@@ -1,11 +1,13 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '@/src/theme';
 
 export default function TabsLayout() {
   // Phones with the 3-button system bar report a tall bottom inset; the tab bar must clear it.
   const insets = useSafeAreaInsets();
+  const bottomInset = Platform.OS === 'web' ? Math.max(insets.bottom, 18) : insets.bottom; // web preview has no system bar
   return (
     <Tabs
       screenOptions={{
@@ -15,8 +17,8 @@ export default function TabsLayout() {
         tabBarStyle: {
           backgroundColor: '#0B1510',
           borderTopColor: theme.color.border,
-          height: 66 + insets.bottom,
-          paddingBottom: 10 + insets.bottom,
+          height: 66 + bottomInset,
+          paddingBottom: 10 + bottomInset,
           paddingTop: 8,
         },
         tabBarLabelStyle: { fontSize: 11, lineHeight: 16, fontFamily: theme.fontFamily.semibold },
