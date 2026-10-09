@@ -38,7 +38,7 @@ export default function ImportScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="import-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="import-screen">
       <View style={styles.topBar}>
         <Pressable testID="import-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />

@@ -63,7 +63,7 @@ export default function AddManualTransaction() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="add-transaction-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="add-transaction-screen">
       <View style={styles.topBar}>
         <Pressable testID="add-txn-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />

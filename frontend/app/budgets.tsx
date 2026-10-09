@@ -65,7 +65,7 @@ export default function BudgetsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="budgets-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="budgets-screen">
       <View style={styles.topBar}>
         <Pressable testID="budgets-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />

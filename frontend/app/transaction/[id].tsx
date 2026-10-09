@@ -69,7 +69,7 @@ export default function TransactionDetail() {
   const color = CATEGORY_COLORS[txn.category] || theme.color.brand;
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="txn-detail-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="txn-detail-screen">
       <View style={styles.topBar}>
         <Pressable testID="back-button" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />

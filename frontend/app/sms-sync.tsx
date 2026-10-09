@@ -91,7 +91,7 @@ export default function SmsSyncScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="sms-sync-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="sms-sync-screen">
       <View style={styles.topBar}>
         <Pressable testID="sms-sync-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />

@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, Modal, Switch } from 'react-native';
 import { Text, TextInput } from '@/src/ui/Text';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { apiFetch } from '@/src/api/client';
@@ -37,6 +37,7 @@ const amountText = (a: number, type: string) => (type === 'VARIABLE' ? '~' : '')
 
 export default function RecurringScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [upcoming, setUpcoming] = useState<Upcoming[]>([]);
@@ -157,7 +158,7 @@ export default function RecurringScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.root} edges={['top']} testID="recurring-screen">
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']} testID="recurring-screen">
       <View style={styles.topBar}>
         <Pressable testID="recurring-back" onPress={() => router.back()} style={styles.iconBtn}>
           <Ionicons name="chevron-back" size={22} color={theme.color.onSurface} />
@@ -255,7 +256,7 @@ export default function RecurringScreen() {
       <Modal visible={!!sheet} transparent animationType="slide" onRequestClose={() => { setEditing(false); setSheet(null); }}>
         <Pressable style={styles.backdrop} onPress={() => { setEditing(false); setSheet(null); }}>
           {sheet && (
-            <Pressable style={styles.sheet} testID="recurring-sheet">
+            <Pressable style={[styles.sheet, { paddingBottom: 32 + insets.bottom }]} testID="recurring-sheet">
               <Text style={styles.sheetTitle}>{sheet.merchant}</Text>
               <Text style={styles.rowSub}>
                 {amountText(sheet.expected_amount, sheet.amount_type)} / {PER[sheet.frequency]} • {sheet.category}
