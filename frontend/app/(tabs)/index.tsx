@@ -26,7 +26,7 @@ type Dash = {
   recurring_count?: number;
 };
 type UpcomingSummary = { next_7_days: number; next_30_days: number; next_90_days: number; count_30_days: number };
-type AccountBalance = { account: string; balance: number; as_of: string; bank: string | null };
+type AccountBalance = { account: string; balance: number; as_of: string; bank: string | null; estimated?: boolean; adjusted_txns?: number };
 
 const BANK_AVATAR_COLORS = ['#2E4F3D', '#4A6FA5', '#8B5B9F', '#C25A3A', '#A87A2B', '#2F7A78'];
 
@@ -54,7 +54,7 @@ export default function Dashboard() {
   const { user } = useAuth();
   const router = useRouter();
   const [data, setData] = useState<Dash | null>(null);
-  const [accounts, setAccounts] = useState<{ items: AccountBalance[]; total: number } | null>(null);
+  const [accounts, setAccounts] = useState<{ items: AccountBalance[]; total: number; estimated?: boolean } | null>(null);
   const [upcoming, setUpcoming] = useState<UpcomingSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -73,7 +73,7 @@ export default function Dashboard() {
       }
       const [d, a] = await Promise.all([
         apiFetch<Dash>(url),
-        apiFetch<{ items: AccountBalance[]; total: number }>('/accounts/balances'),
+        apiFetch<{ items: AccountBalance[]; total: number; estimated?: boolean }>('/accounts/balances'),
       ]);
       setData(d);
       setAccounts(a);
@@ -216,9 +216,9 @@ export default function Dashboard() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.totalBalLabel}>TOTAL BALANCE</Text>
-                  <Text style={styles.totalBalAmount} testID="total-balance-amount">{formatINR(accounts!.total)}</Text>
+                  <Text style={styles.totalBalAmount} testID="total-balance-amount">{accounts!.estimated ? '~' : ''}{formatINR(accounts!.total)}</Text>
                   <Text style={styles.totalBalMeta}>
-                    across {accounts!.items.length} account{accounts!.items.length > 1 ? 's' : ''}
+                    across {accounts!.items.length} account{accounts!.items.length > 1 ? 's' : ''}{accounts!.estimated ? ' • estimated' : ''}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={theme.color.onSurfaceTertiary} />
@@ -427,13 +427,18 @@ export default function Dashboard() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.acctDetailName}>{a.bank || 'Bank account'}</Text>
                     <Text style={styles.acctDetailMeta}>
-                      {a.account} • as of {new Date(a.as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      {a.account} • as of {new Date(a.as_of).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}{a.estimated ? ` + ${a.adjusted_txns} later transaction${a.adjusted_txns === 1 ? '' : 's'}` : ''}
                     </Text>
                   </View>
-                  <Text style={styles.acctDetailBalance}>{formatINR(a.balance)}</Text>
+                  <Text style={styles.acctDetailBalance}>{a.estimated ? '~' : ''}{formatINR(a.balance)}</Text>
                 </View>
               ))}
             </ScrollView>
+            {accounts?.estimated && (
+              <Text style={styles.balNote}>
+                ~ means estimated: your bank's last printed balance, adjusted by later transactions whose messages don't show a balance.
+              </Text>
+            )}
             <View style={styles.modalActions}>
               <Pressable testID="balances-close" onPress={() => setBalancesSheet(false)} style={styles.modalPrimary}>
                 <Text style={styles.modalPrimaryText}>Close</Text>
@@ -534,6 +539,7 @@ const styles = StyleSheet.create({
   acctDetailAvatarText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   acctDetailName: { fontSize: 14, fontWeight: '600', color: theme.color.onSurface },
   acctDetailMeta: { fontSize: 12, color: theme.color.onSurfaceTertiary, marginTop: 2 },
+  balNote: { fontSize: 12, lineHeight: 17, color: theme.color.onSurfaceTertiary, marginTop: theme.spacing.md },
   acctDetailBalance: { fontSize: 15, fontWeight: '700', color: theme.color.onSurface },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: theme.spacing.xl },
   modalCard: { backgroundColor: theme.color.surfaceSecondary, borderRadius: theme.radius.lg, padding: theme.spacing.xl, width: '100%', maxWidth: 380 },

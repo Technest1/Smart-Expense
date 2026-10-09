@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime, timezone, timedelta, date as date_cls
 import recurring as rec
+import balances as bal_calc
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -371,7 +372,7 @@ DATE_RE = re.compile(r"\b(\d{1,2}[-/](?:\d{1,2}|[A-Za-z]{3})[-/]\d{2,4})\b")
 BALANCE_RE = re.compile(
     r"(?:avl(?:bl)?\.?\s*bal(?:ance)?|available\s*bal(?:ance)?|bal(?:ance)?\s*available|bal(?:ance)?)"
     r"[^0-9]{0,40}?"
-    r"(?:inr|rs\.?|₹)\s*([0-9]{1,3}(?:[,][0-9]{2,3})*(?:\.\d{1,2})?)",
+    r"(?:inr|rs\.?|₹)\s*([0-9][0-9,]*(?:\.\d{1,2})?)",
     re.IGNORECASE,
 )
 # Indian bank SMS convention: sender name trails the message after a dash, e.g.
@@ -541,6 +542,13 @@ async def ingest_one_item(user_id: str, source: str, text: str, received_at: dat
         return {"status": "skipped", "reason": "no_transaction_found"}
 
     dup_of = await is_duplicate(user_id, parsed)
+    if dup_of and parsed.get("balance_after") is not None:
+        # Same message read again (e.g. "Re-read all messages"): refresh its balance, which older
+        # versions of the parser could read wrongly (e.g. 126434.00 as 126).
+        await db.transactions.update_one(
+            {"id": dup_of, "user_id": user_id, "raw_text": text},
+            {"$set": {"balance_after": parsed["balance_after"]}},
+        )
     txn = Transaction(
         user_id=user_id,
         amount=parsed["amount"],
@@ -1137,28 +1145,36 @@ async def analytics_by_merchant(
 # ================= ACCOUNTS =================
 @api_router.get("/accounts/balances")
 async def account_balances(authorization: Optional[str] = Header(None)):
-    """Return the last-known balance per account (if any SMS reported one)."""
+    """Per-account balance: the last balance an SMS reported, rolled forward by later
+    transactions that did not report one (see balances.py). `estimated` marks rolled-forward ones."""
     user = await get_current_user(authorization)
     txns = await db.transactions.find(
-        {"user_id": user.user_id, "account": {"$ne": None},
-         "balance_after": {"$ne": None}, "is_duplicate": False},
-        {"_id": 0, "account": 1, "balance_after": 1, "txn_date": 1, "raw_text": 1},
-    ).sort("txn_date", -1).to_list(2000)
+        {"user_id": user.user_id, "account": {"$ne": None}, "is_duplicate": False},
+        {"_id": 0, "account": 1, "balance_after": 1, "txn_date": 1, "created_at": 1, "raw_text": 1,
+         "amount": 1, "direction": 1},
+    ).sort([("txn_date", 1), ("created_at", 1)]).to_list(20000)
 
-    latest: dict = {}
+    by_acc: dict = {}
     for t in txns:
-        acc = t["account"]
-        if acc in latest:
+        by_acc.setdefault(t["account"], []).append(t)
+
+    items = []
+    for acc, rows in by_acc.items():
+        r = bal_calc.running_balance(rows)
+        if not r:
             continue
-        latest[acc] = {
+        anchor_text = next((x.get("raw_text", "") for x in reversed(rows) if x.get("balance_after") is not None), "")
+        items.append({
             "account": acc,
-            "balance": round(t["balance_after"], 2),
-            "as_of": t["txn_date"].isoformat() if hasattr(t["txn_date"], "isoformat") else t["txn_date"],
-            "bank": extract_bank_name(t.get("raw_text", "")),
-        }
-    items = sorted(latest.values(), key=lambda x: -x["balance"])
+            "balance": r["balance"],
+            "as_of": r["as_of"].isoformat() if hasattr(r["as_of"], "isoformat") else r["as_of"],
+            "bank": extract_bank_name(anchor_text),
+            "estimated": r["estimated"],
+            "adjusted_txns": r["adjusted"],
+        })
+    items.sort(key=lambda x: -x["balance"])
     total = round(sum(x["balance"] for x in items), 2)
-    return {"items": items, "total": total}
+    return {"items": items, "total": total, "estimated": any(x["estimated"] for x in items)}
 
 # ================= GMAIL SYNC =================
 def _strip_html(raw: str) -> str:
