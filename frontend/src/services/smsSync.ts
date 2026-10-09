@@ -5,7 +5,14 @@ import { looksLikeTransaction } from './transactionFilter';
 
 const SmsAndroid = NativeModules.Sms;
 
-const LAST_SYNC_KEY = 'expensesync_sms_last_sync_ms';
+export const LAST_SYNC_KEY = 'expensesync_sms_last_sync_ms';
+// which account the stored sync marker belongs to (a marker is only valid for that account)
+export const SYNC_USER_KEY = 'expensesync_sms_synced_user';
+
+/** Forget how far we read, so the next sync re-reads the whole inbox (duplicates are filtered server-side). */
+export async function resetSmsCursor() {
+  await storage.removeItem(LAST_SYNC_KEY);
+}
 const BATCH_SIZE = 50; // matches backend MAX_INGEST_ITEMS in server.py
 
 // Bank/merchant SMS come from short alphanumeric sender IDs (e.g. "VM-HDFCBK"), not

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal } from 'react-native';
+import { View, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator, PermissionsAndroid, Modal, Alert } from 'react-native';
 import { Text } from '@/src/ui/Text';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { runSmsSync, SmsSyncResult } from '@/src/services/smsSync';
+import { runSmsSync, resetSmsCursor, SmsSyncResult } from '@/src/services/smsSync';
 import { theme } from '@/src/theme';
 import { SyncOverlay } from '@/src/ui/SyncIndicators';
 
@@ -30,7 +30,11 @@ export default function SmsSyncScreen() {
   const [showDisclosure, setShowDisclosure] = useState(false);
 
   useEffect(() => {
-    if (auto === '1' && Platform.OS === 'android') setShowDisclosure(true);
+    if (Platform.OS !== 'android') return;
+    PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.READ_SMS).then((ok) => {
+      if (ok) setStatus('granted');
+      else if (auto === '1') setShowDisclosure(true);
+    }).catch(() => {});
   }, [auto]);
 
   const requestPerm = async () => {
@@ -60,6 +64,12 @@ export default function SmsSyncScreen() {
     }
     setBusy(false);
   };
+
+  const resyncAll = () =>
+    Alert.alert('Re-read all messages?', 'Moneta will read your whole SMS inbox again. Messages it already has are skipped, so nothing is counted twice.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Re-read', onPress: async () => { await resetSmsCursor(); await syncNow(); } },
+    ]);
 
   const syncNow = async () => {
     setBusy(true);
@@ -146,6 +156,12 @@ export default function SmsSyncScreen() {
             disabled={busy}
             style={[styles.secondaryBtn, { marginTop: theme.spacing.md }, busy && { opacity: 0.5 }]}>
             {busy ? <ActivityIndicator color={theme.color.onSurface} /> : <Text style={styles.secondaryBtnText}>Sync now</Text>}
+          </Pressable>
+        )}
+
+        {status === 'granted' && (
+          <Pressable testID="resync-all-btn" onPress={resyncAll} disabled={busy} style={[styles.secondaryBtn, { marginTop: theme.spacing.sm }, busy && { opacity: 0.5 }]}>
+            <Text style={styles.secondaryBtnText}>Re-read all messages</Text>
           </Pressable>
         )}
 
